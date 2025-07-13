@@ -1,0 +1,8 @@
+{
+  "project": "retainr",
+  "category": "architecture",
+  "tags": ["mcp", "server", "fastapi", "vector-database"],
+  "references": ["mcp_server/main.py", "mcp_server/api.py", "docker-compose.yml"],
+  "content": "# MCP Server Architecture\n\nThe retainr MCP server uses FastAPI to provide endpoints for memory storage and retrieval. Key components:\n\n- **POST /memory**: Accepts JSON memory entries, saves as markdown files, and indexes in ChromaDB\n- **GET /memory/search**: Semantic search with query parameters for project and tags\n- **PATCH /memory/{id}**: Mark memories as outdated\n- **GET /memory**: List recent memories with optional project filtering\n\nMemories are stored as markdown files with YAML frontmatter and indexed in ChromaDB for vector search. The system uses sentence-transformers for embeddings.",
+  "outdated": false
+}

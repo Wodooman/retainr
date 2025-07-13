@@ -1,0 +1,8 @@
+{
+  "project": "retainr",
+  "category": "documentation",
+  "tags": ["cli", "usage", "commands"],
+  "references": ["cli/main.py", "README.md"],
+  "content": "# CLI Usage Guide\n\nThe retainr CLI provides commands for interacting with the memory server:\n\n## Available Commands\n\n### Save Memory\n```bash\nretainr save memory.json\n```\n\n### Search Memories\n```bash\nretainr recall \"query text\" --project myapp --top 5\n```\n\n### List Memories\n```bash\nretainr list --project retainr --limit 10\n```\n\n### Update Memory\n```bash\nretainr update <memory-id> --outdated\n```\n\n### Check Status\n```bash\nretainr status\n```\n\nThe CLI uses Rich for beautiful terminal output and supports multiple output formats (rich, json, plain).",
+  "outdated": false
+}

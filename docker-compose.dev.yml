@@ -1,0 +1,17 @@
+version: '3.8'
+
+# Development override for docker-compose
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  retainr:
+    volumes:
+      # Mount entire source for hot reload
+      - .:/app
+      # But exclude these directories to avoid conflicts
+      - /app/.git
+      - /app/__pycache__
+      - /app/.pytest_cache
+    environment:
+      - RETAINR_DEBUG=true
+    command: ["python", "-m", "uvicorn", "mcp_server.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "debug"]

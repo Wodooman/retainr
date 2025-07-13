@@ -1,0 +1,43 @@
+version: '3.8'
+
+# Production Docker Compose configuration
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  retainr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: retainr-server
+    ports:
+      - "8000:8000"
+    volumes:
+      # Only mount user-configurable memory storage
+      - ${RETAINR_MEMORY_DIR:-./memory}:/app/memory
+    environment:
+      - RETAINR_HOST=0.0.0.0
+      - RETAINR_PORT=8000
+      - RETAINR_MEMORY_DIR=/app/memory
+      - RETAINR_CHROMA_HOST=chroma
+      - RETAINR_CHROMA_PORT=8000
+    env_file:
+      - .env
+    depends_on:
+      - chroma
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "mcp_server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: retainr-chroma
+    volumes:
+      - retainr_chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
+volumes:
+  retainr_chroma_data:
+    driver: local

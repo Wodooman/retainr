@@ -1,0 +1,8 @@
+{
+  "project": "retainr",
+  "category": "implementation",
+  "tags": ["docker", "chromadb", "configuration"],
+  "references": ["docker-compose.yml", "mcp_server/config.py"],
+  "content": "# Docker Configuration\n\nThe project uses Docker Compose to bundle the FastAPI server with ChromaDB:\n\n## Services\n- **retainr-server**: FastAPI application on port 8000\n- **retainr-chroma**: ChromaDB instance for vector storage\n\n## Key Features\n- User-configurable memory storage via `RETAINR_MEMORY_DIR`\n- Internal ChromaDB with persistent volume\n- Development and production configurations\n- Health checks and service dependencies\n\n## Commands\n- `make up`: Start all services\n- `make dev`: Development mode with hot reload\n- `make logs`: View server logs",
+  "outdated": false
+}

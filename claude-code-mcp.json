@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "retainr": {
+      "transport": {
+        "type": "http",
+        "url": "http://localhost:8000/mcp"
+      },
+      "description": "Persistent memory server for AI agents",
+      "capabilities": ["tools", "resources"]
+    }
+  }
+}

@@ -126,15 +126,44 @@ pytest --cov=mcp_server --cov=cli
 ```
 
 ### Code Quality
+
+**IMPORTANT: Always run format and lint checks before committing to avoid pre-commit hook modifications:**
+
 ```bash
-# Format code
+# REQUIRED before every commit - use Makefile commands:
+make format
+
+# Then proceed with commit
+git add .
+git commit -m "your message"
+```
+
+**Or manually (same as Makefile):**
+```bash
+# Format code (fixes issues automatically)
 black .
+ruff check --fix .
+```
 
-# Lint code
+**Check code quality (same as CI):**
+```bash
+# Use Makefile (recommended)
+make lint
+
+# Or manually (same commands as CI)
+black --check --diff .
 ruff check .
+mypy mcp_server cli --ignore-missing-imports
+```
 
-# Type checking
-mypy mcp_server cli
+**Available Makefile commands:**
+```bash
+make format          # Format code (black + ruff --fix)
+make lint           # Check code quality (same as CI)
+make pre-commit-run # Run all pre-commit hooks
+make test           # Run all tests
+make test-unit      # Run unit tests only
+make test-cov       # Run tests with coverage
 ```
 
 ### CI/CD Optimization

@@ -35,6 +35,11 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Convert image name to lowercase
+      id: lowercase
+      shell: bash
+      run: echo "image-name=$(echo '${{ inputs.image-name }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
     - name: Set up Docker Buildx with optimized config
       uses: docker/setup-buildx-action@v3
       with:
@@ -59,7 +64,7 @@ runs:
       shell: bash
       run: |
         # Check if we have a recent cache
-        if docker manifest inspect ${{ inputs.registry }}/${{ inputs.image-name }}:cache-${{ inputs.cache-scope }} >/dev/null 2>&1; then
+        if docker manifest inspect ${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:cache-${{ inputs.cache-scope }} >/dev/null 2>&1; then
           echo "cache-hit=true" >> $GITHUB_OUTPUT
           echo "✅ Found existing cache for ${{ inputs.cache-scope }}"
         else
@@ -71,7 +76,7 @@ runs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ inputs.registry }}/${{ inputs.image-name }}
+        images: ${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -90,13 +95,13 @@ runs:
         labels: ${{ steps.meta.outputs.labels }}
         # Advanced cache configuration for large images
         cache-from: |
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache-${{ inputs.cache-scope }}
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache-main
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:builder-cache-${{ inputs.cache-scope }}
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:builder-cache-main
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:cache-${{ inputs.cache-scope }}
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:cache-main
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:builder-cache-${{ inputs.cache-scope }}
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:builder-cache-main
         cache-to: |
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:cache-${{ inputs.cache-scope }},mode=max
-          type=registry,ref=${{ inputs.registry }}/${{ inputs.image-name }}:builder-cache-${{ inputs.cache-scope }},mode=max,target=builder
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:cache-${{ inputs.cache-scope }},mode=max
+          type=registry,ref=${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }}:builder-cache-${{ inputs.cache-scope }},mode=max,target=builder
         build-args: |
           BUILDKIT_INLINE_CACHE=1
         # Optimize for large images
@@ -109,4 +114,4 @@ runs:
         echo "Cache scope: ${{ inputs.cache-scope }}"
         echo "Cache hit: ${{ steps.cache-check.outputs.cache-hit }}"
         echo "Image size:"
-        docker images ${{ inputs.registry }}/${{ inputs.image-name }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+        docker images ${{ inputs.registry }}/${{ steps.lowercase.outputs.image-name }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"

@@ -105,6 +105,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Set lowercase image name
+      id: image
+      run: echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
@@ -123,7 +127,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -141,9 +145,9 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: |
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ github.ref_name }}
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main
-        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ github.ref_name }},mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ github.ref_name }}
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-main
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-${{ github.ref_name }},mode=max
         build-args: |
           BUILDKIT_INLINE_CACHE=1
 
@@ -157,11 +161,11 @@ jobs:
         target: builder
         platforms: linux/amd64
         push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }}
+        tags: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:builder-cache-${{ github.ref_name }}
         cache-from: |
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }}
-          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-main
-        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }},mode=max
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:builder-cache-${{ github.ref_name }}
+          type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:builder-cache-main
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:builder-cache-${{ github.ref_name }},mode=max
 
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
@@ -190,6 +194,10 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     # Use pre-built image if available, otherwise build minimal test image
+    - name: Set lowercase image name
+      id: image
+      run: echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
     - name: Pull or build test image
       run: |
         if [ "${{ needs.detect-changes.outputs.docker-changed }}" == "true" ]; then
@@ -198,9 +206,9 @@ jobs:
           docker tag ${{ needs.docker-build.outputs.image-tag }} retainr:test
         else
           # Use cached image or build lightweight version
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main || \
+          docker pull ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-main || \
           docker build -t retainr:test --target runtime \
-            --cache-from ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main .
+            --cache-from ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:cache-main .
         fi
         docker tag retainr:test retainr:latest
 

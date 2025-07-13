@@ -130,8 +130,8 @@ jobs:
     - name: Check container status
       run: |
         docker compose ps
-        docker compose logs retainr-chroma
-        docker compose logs retainr-server
+        docker compose logs chroma
+        docker compose logs retainr
 
     - name: Wait for ChromaDB to be ready
       run: |
@@ -150,7 +150,7 @@ jobs:
             echo "Attempt $i: Server not ready, waiting..."
             if [ $i -eq 12 ]; then
               echo "Server failed to start, showing logs:"
-              docker compose logs retainr-server
+              docker compose logs retainr
               exit 1
             fi
             sleep 10
@@ -178,9 +178,9 @@ jobs:
       if: failure()
       run: |
         echo "=== Server Logs ==="
-        docker logs retainr-server
+        docker compose logs retainr
         echo "=== ChromaDB Logs ==="
-        docker logs retainr-chroma
+        docker compose logs chroma
 
     - name: Clean up
       if: always()
@@ -196,6 +196,16 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+
+    - name: Create .env file for Docker Compose
+      run: |
+        cat > .env << EOF
+        RETAINR_MEMORY_DIR=./memory
+        RETAINR_CHROMA_HOST=chroma
+        RETAINR_CHROMA_PORT=8000
+        RETAINR_CHROMA_COLLECTION=retainr_memories
+        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
+        EOF
 
     - name: Test Docker build
       run: |

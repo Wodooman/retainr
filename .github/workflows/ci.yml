@@ -136,24 +136,36 @@ jobs:
     - name: Wait for ChromaDB to be ready
       run: |
         echo "Waiting for ChromaDB on port 8001..."
-        timeout 60 bash -c 'until curl -f http://localhost:8001/api/v1/heartbeat; do echo "ChromaDB not ready, waiting..."; sleep 5; done'
-        echo "ChromaDB is ready!"
+        for i in {1..8}; do
+          if curl -s http://localhost:8001/ >/dev/null 2>&1; then
+            echo "ChromaDB is ready!"
+            break
+          else
+            echo "Attempt $i: ChromaDB not ready, waiting..."
+            if [ $i -eq 8 ]; then
+              echo "ChromaDB failed to start, checking what's on port 8001:"
+              curl -v http://localhost:8001/ || true
+              exit 1
+            fi
+            sleep 5
+          fi
+        done
 
     - name: Wait for retainr server to be healthy
       run: |
         echo "Waiting for retainr server on port 8000..."
-        for i in {1..12}; do
-          if curl -f http://localhost:8000/health; then
+        for i in {1..6}; do
+          if curl -f http://localhost:8000/health 2>/dev/null; then
             echo "Server is healthy!"
             break
           else
             echo "Attempt $i: Server not ready, waiting..."
-            if [ $i -eq 12 ]; then
+            if [ $i -eq 6 ]; then
               echo "Server failed to start, showing logs:"
               docker compose logs retainr
               exit 1
             fi
-            sleep 10
+            sleep 5
           fi
         done
 

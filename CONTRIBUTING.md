@@ -112,6 +112,12 @@ git commit -m "docs: update installation instructions"
 - Create a pull request from your branch to `main`
 - Fill out the pull request template
 - Link to any related issues
+- Wait for required status checks to pass:
+  - Code Quality (Black formatting, Ruff linting)
+  - Unit Tests (Python 3.9, 3.11, 3.12)
+  - Security Check (Bandit, Safety)
+  - Docker Build
+- Address any failing checks before requesting review
 
 ## 🎨 Code Style
 

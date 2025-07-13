@@ -175,7 +175,14 @@ Apache License 2.0 - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! All PRs must pass automated quality checks:
+
+- ✅ **Code Quality**: Black formatting + Ruff linting
+- ✅ **Unit Tests**: Python 3.9, 3.11, 3.12 
+- ✅ **Security**: Bandit + Safety scans
+- ✅ **Build**: Docker build verification
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Commercial Version
 

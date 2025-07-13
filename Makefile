@@ -91,6 +91,9 @@ pre-commit-update: ## Update pre-commit hooks
 setup-claude-code: ## Setup Claude Code MCP integration
 	./setup-claude-code.sh
 
+setup-branch-protection: ## Setup GitHub branch protection rules (requires gh CLI)
+	./scripts/setup-branch-protection.sh
+
 test-mcp: ## Test MCP endpoints
 	curl -X POST http://localhost:8000/mcp/initialize -H "Content-Type: application/json" -d '{"protocolVersion": "1.0", "clientInfo": {"name": "test"}}'
 	curl http://localhost:8000/mcp/tools/list

@@ -32,5 +32,5 @@ def sample_memory_data():
         "tags": ["test", "pytest"],
         "references": ["conftest.py"],
         "content": "# Test Memory\n\nThis is a test memory for pytest.",
-        "outdated": False
+        "outdated": False,
     }

@@ -13,7 +13,7 @@ def sample_memory_entry() -> MemoryEntry:
         references=["tests/test_file.py"],
         content="# Test Memory\n\nThis is a sample memory entry for testing purposes.",
         outdated=False,
-        timestamp=datetime(2024, 1, 15, 10, 30, 0)
+        timestamp=datetime(2024, 1, 15, 10, 30, 0),
     )
 
 
@@ -25,7 +25,7 @@ def sample_memory_json() -> dict:
         "tags": ["test", "api", "json"],
         "references": ["tests/api_test.py"],
         "content": "# API Test Memory\n\nThis memory was created via API for testing.",
-        "outdated": False
+        "outdated": False,
     }
 
 
@@ -39,7 +39,7 @@ def sample_memories_list() -> list[MemoryEntry]:
             references=["src/models.py"],
             content="# Database Architecture\n\nUsing PostgreSQL for data persistence.",
             outdated=False,
-            timestamp=datetime(2024, 1, 10, 9, 0, 0)
+            timestamp=datetime(2024, 1, 10, 9, 0, 0),
         ),
         MemoryEntry(
             project="project-a",
@@ -48,7 +48,7 @@ def sample_memories_list() -> list[MemoryEntry]:
             references=["src/auth.py"],
             content="# Authentication System\n\nImplemented JWT-based authentication.",
             outdated=False,
-            timestamp=datetime(2024, 1, 12, 14, 15, 0)
+            timestamp=datetime(2024, 1, 12, 14, 15, 0),
         ),
         MemoryEntry(
             project="project-b",
@@ -57,6 +57,6 @@ def sample_memories_list() -> list[MemoryEntry]:
             references=["src/utils.py"],
             content="# Performance Issue Fix\n\nOptimized query performance by adding indexes.",
             outdated=True,
-            timestamp=datetime(2024, 1, 5, 16, 45, 0)
-        )
+            timestamp=datetime(2024, 1, 5, 16, 45, 0),
+        ),
     ]

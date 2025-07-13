@@ -1,4 +1,4 @@
-name: Optimized CI for Large Docker Images
+name: CI
 
 on:
   push:

@@ -1,7 +1,7 @@
 """Vector embeddings and ChromaDB integration."""
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -55,7 +55,7 @@ class EmbeddingService:
             logger.error(f"Failed to connect to ChromaDB: {e}")
             raise
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str) -> list[float]:
         """Generate embedding for text."""
         if not self.model:
             raise RuntimeError("Embedding model not initialized")
@@ -128,9 +128,9 @@ class EmbeddingService:
         self,
         query: str,
         project: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        tags: Optional[list[str]] = None,
         top_k: int = 3,
-    ) -> List[MemorySearchResult]:
+    ) -> list[MemorySearchResult]:
         """Search for similar memories."""
         if not self.collection:
             raise RuntimeError("ChromaDB collection not initialized")
@@ -230,7 +230,7 @@ class EmbeddingService:
             logger.error(f"Failed to delete memory {memory_id}: {e}")
             return False
 
-    def get_collection_stats(self) -> Dict[str, Any]:
+    def get_collection_stats(self) -> dict[str, Any]:
         """Get collection statistics."""
         if not self.collection:
             return {"error": "Collection not initialized"}

@@ -1,10 +1,11 @@
 """Unit tests for memory storage functionality."""
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
+import tempfile
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 from mcp_server.storage import MemoryStorage
 from tests.fixtures.sample_memory import sample_memory_entry
@@ -130,7 +131,7 @@ class TestMemoryStorage:
 
     def test_list_memory_files_by_project(self, temp_storage):
         """Test listing memory files filtered by project."""
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         # Create memories for different projects with unique timestamps and content
         entry1 = sample_memory_entry()

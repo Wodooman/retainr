@@ -1,7 +1,6 @@
 """Configuration for the MCP server."""
 
 from pathlib import Path
-from typing import List
 
 try:
     from pydantic_settings import BaseSettings
@@ -32,7 +31,7 @@ class Settings(BaseSettings):
 
     # API settings
     api_prefix: str = ""
-    cors_origins: List[str] = ["*"]
+    cors_origins: list[str] = ["*"]
 
     # Debug mode
     debug: bool = False

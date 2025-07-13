@@ -1,10 +1,9 @@
 """File-based memory storage with markdown files."""
 
 import hashlib
-import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import frontmatter
 from slugify import slugify
@@ -82,7 +81,7 @@ class MemoryStorage:
             return None
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 post = frontmatter.load(f)
 
             # Parse timestamp
@@ -113,7 +112,7 @@ class MemoryStorage:
         self.save_memory(entry)
         return True
 
-    def list_memory_files(self, project: Optional[str] = None) -> List[Path]:
+    def list_memory_files(self, project: Optional[str] = None) -> list[Path]:
         """List all memory files, optionally filtered by project."""
         files = []
 

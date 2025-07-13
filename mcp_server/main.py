@@ -3,12 +3,12 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .config import settings
 from .api import router as memory_router
+from .config import settings
 from .mcp import router as mcp_router
 
 # Configure logging

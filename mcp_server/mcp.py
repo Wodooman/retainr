@@ -1,16 +1,15 @@
 """MCP (Model Context Protocol) implementation for retainr."""
 
-import json
 import logging
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from .embeddings import EmbeddingService
 from .models import MemoryEntry
 from .storage import MemoryStorage
-from .embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -25,41 +24,41 @@ class MCPInitializeRequest(BaseModel):
     """MCP initialization request."""
 
     protocolVersion: str
-    clientInfo: Dict[str, Any]
+    clientInfo: dict[str, Any]
 
 
 class MCPInitializeResponse(BaseModel):
     """MCP initialization response."""
 
     protocolVersion: str
-    serverInfo: Dict[str, Any]
-    capabilities: Dict[str, Any]
+    serverInfo: dict[str, Any]
+    capabilities: dict[str, Any]
 
 
 class MCPToolsListResponse(BaseModel):
     """MCP tools list response."""
 
-    tools: List[Dict[str, Any]]
+    tools: list[dict[str, Any]]
 
 
 class MCPToolCallRequest(BaseModel):
     """MCP tool call request."""
 
     name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 class MCPToolCallResponse(BaseModel):
     """MCP tool call response."""
 
-    content: List[Dict[str, Any]]
+    content: list[dict[str, Any]]
     isError: bool = False
 
 
 class MCPResourcesListResponse(BaseModel):
     """MCP resources list response."""
 
-    resources: List[Dict[str, Any]]
+    resources: list[dict[str, Any]]
 
 
 @router.post("/initialize", response_model=MCPInitializeResponse)
@@ -220,7 +219,7 @@ async def mcp_tool_call(request: MCPToolCallRequest):
         )
 
 
-async def _tool_save_memory(args: Dict[str, Any]) -> MCPToolCallResponse:
+async def _tool_save_memory(args: dict[str, Any]) -> MCPToolCallResponse:
     """Save memory tool implementation."""
     try:
         # Create memory entry
@@ -253,7 +252,7 @@ async def _tool_save_memory(args: Dict[str, Any]) -> MCPToolCallResponse:
         raise
 
 
-async def _tool_search_memories(args: Dict[str, Any]) -> MCPToolCallResponse:
+async def _tool_search_memories(args: dict[str, Any]) -> MCPToolCallResponse:
     """Search memories tool implementation."""
     try:
         query = args["query"]
@@ -292,7 +291,7 @@ async def _tool_search_memories(args: Dict[str, Any]) -> MCPToolCallResponse:
         raise
 
 
-async def _tool_list_memories(args: Dict[str, Any]) -> MCPToolCallResponse:
+async def _tool_list_memories(args: dict[str, Any]) -> MCPToolCallResponse:
     """List memories tool implementation."""
     try:
         project = args.get("project")
@@ -337,7 +336,7 @@ async def _tool_list_memories(args: Dict[str, Any]) -> MCPToolCallResponse:
         raise
 
 
-async def _tool_update_memory(args: Dict[str, Any]) -> MCPToolCallResponse:
+async def _tool_update_memory(args: dict[str, Any]) -> MCPToolCallResponse:
     """Update memory tool implementation."""
     try:
         memory_id = args["memory_id"]
@@ -436,4 +435,4 @@ async def mcp_get_resource(memory_id: str):
         raise
     except Exception as e:
         logger.error(f"Get resource failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get resource")
+        raise HTTPException(status_code=500, detail="Failed to get resource") from e

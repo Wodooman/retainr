@@ -1,7 +1,7 @@
 """Data models for memory entries."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,8 +14,8 @@ class MemoryEntry(BaseModel):
         ...,
         description="Category: architecture, implementation, debugging, documentation, other",
     )
-    tags: List[str] = Field(default_factory=list, description="Tags for searchability")
-    references: List[str] = Field(
+    tags: list[str] = Field(default_factory=list, description="Tags for searchability")
+    references: list[str] = Field(
         default_factory=list, description="Related file paths"
     )
     content: str = Field(..., description="Memory content in markdown format")
@@ -47,7 +47,7 @@ class MemorySearchParams(BaseModel):
 
     query: str = Field(..., description="Search query")
     project: Optional[str] = Field(None, description="Filter by project")
-    tags: Optional[List[str]] = Field(None, description="Filter by tags")
+    tags: Optional[list[str]] = Field(None, description="Filter by tags")
     top: int = Field(3, ge=1, le=10, description="Number of results to return")
 
     @field_validator("query")

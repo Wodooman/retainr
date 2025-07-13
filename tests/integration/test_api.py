@@ -1,7 +1,8 @@
 """Integration tests for the FastAPI application."""
 
-import pytest
 import httpx
+import pytest
+
 from tests.fixtures.sample_memory import sample_memory_json
 
 

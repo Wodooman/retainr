@@ -1,20 +1,18 @@
 """API endpoints for memory operations."""
 
 import logging
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
+from .embeddings import EmbeddingService
 from .models import (
     MemoryEntry,
-    MemorySearchParams,
     MemorySearchResult,
     MemoryUpdateRequest,
 )
 from .storage import MemoryStorage
-from .embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,7 @@ class MemorySearchResponse(BaseModel):
     """Response for memory search."""
 
     query: str
-    results: List[MemorySearchResult]
+    results: list[MemorySearchResult]
     total: int
 
 
@@ -69,7 +67,7 @@ async def create_memory(entry: MemoryEntry):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save memory: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/search", response_model=MemorySearchResponse)
@@ -101,7 +99,7 @@ async def search_memories(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to search memories: {str(e)}",
-        )
+        ) from e
 
 
 @router.patch("/{memory_id}", status_code=status.HTTP_200_OK)
@@ -140,7 +138,7 @@ async def update_memory(memory_id: str, update_request: MemoryUpdateRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update memory: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/{memory_id}")
@@ -172,7 +170,7 @@ async def get_memory(memory_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve memory: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/")
@@ -206,7 +204,7 @@ async def list_memories(project: Optional[str] = None, limit: int = 20):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list memories: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/stats/collection")
@@ -221,4 +219,4 @@ async def get_collection_stats():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get statistics: {str(e)}",
-        )
+        ) from e

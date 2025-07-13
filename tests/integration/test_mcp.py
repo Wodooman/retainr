@@ -1,7 +1,7 @@
 """Integration tests for MCP protocol endpoints."""
 
-import pytest
 import httpx
+import pytest
 
 
 class TestMCPIntegration:

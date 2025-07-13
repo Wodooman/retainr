@@ -8,9 +8,9 @@ from typing import Optional
 import click
 import httpx
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 
@@ -41,7 +41,7 @@ def save(memory_file: Path, server: Optional[str]):
 
     try:
         # Load memory from file
-        with open(memory_file, "r") as f:
+        with open(memory_file) as f:
             memory_data = json.load(f)
 
         # Validate required fields
@@ -284,7 +284,6 @@ def list_memories(project: Optional[str], limit: int, server: Optional[str]):
             table.add_column("Timestamp", style="dim")
 
             for memory in result["memories"]:
-                status = "outdated" if memory["outdated"] else "active"
                 status_style = (
                     "[red]outdated[/red]"
                     if memory["outdated"]

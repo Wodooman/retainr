@@ -1,7 +1,8 @@
 """Unit tests for Pydantic models."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 from pydantic import ValidationError
 
 from mcp_server.models import MemoryEntry, MemorySearchParams, MemoryUpdateRequest

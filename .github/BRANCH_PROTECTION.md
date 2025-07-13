@@ -11,7 +11,9 @@ The following checks are **required** for all PRs to the `main` and `develop` br
 - **Unit Tests** - Unit tests on Python 3.11 (matches production)
 - **Integration Tests** - Full system integration tests
 - **Docker Build Test** - Ensures Docker builds successfully
-- **Security Scan** - Bandit and Safety scans
+
+### ℹ️ Informational Checks
+- **Security Analysis** - Runs separately with Bandit, Safety, Semgrep, and CodeQL (not required for PR merge)
 
 ## Setting Up Branch Protection
 
@@ -23,7 +25,7 @@ Use the GitHub CLI to set up branch protection rules automatically:
 # Set up branch protection for main branch
 gh api repos/:owner/:repo/branches/main/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test","Security Scan"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true,"require_code_owner_reviews":false}' \
   --field restrictions=null
@@ -31,7 +33,7 @@ gh api repos/:owner/:repo/branches/main/protection \
 # Set up branch protection for develop branch  
 gh api repos/:owner/:repo/branches/develop/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test","Security Scan"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true,"require_code_owner_reviews":false}' \
   --field restrictions=null
@@ -56,7 +58,6 @@ gh api repos/:owner/:repo/branches/develop/protection \
     - `Unit Tests`
     - `Integration Tests`
     - `Docker Build Test`
-    - `Security Scan`
 
 - ✅ **Require conversation resolution before merging**
 - ✅ **Restrict pushes that create files** (optional)

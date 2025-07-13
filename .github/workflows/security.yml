@@ -17,15 +17,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
       with:
-        python-version: "3.11"
+        install-deps: 'false'
 
     - name: Install security tools
-      run: |
-        python -m pip install --upgrade pip
-        pip install bandit safety semgrep
+      run: pip install bandit safety semgrep
 
     - name: Run Bandit security scan
       run: |

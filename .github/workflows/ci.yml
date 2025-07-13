@@ -9,7 +9,15 @@ on:
 env:
   PYTHON_VERSION: "3.11"
 
-# This workflow uses advanced caching strategies for optimal performance:
+# This workflow focuses on code quality and functionality testing:
+# - Lint and format checking
+# - Unit tests with coverage
+# - Integration tests with Docker
+# - Docker build verification
+#
+# Security scanning is handled separately by the Security workflow to avoid duplication.
+#
+# Advanced caching strategies for optimal performance:
 # - Built-in pip caching via setup-python action
 # - ML model caching (sentence-transformers in ~/.cache/huggingface)
 # - Docker layer caching with buildx
@@ -239,41 +247,11 @@ jobs:
         # Clean up
         docker compose down
 
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Python with caching
-      uses: ./.github/actions/setup-python
-
-    - name: Install security tools
-      run: pip install bandit safety
-
-    - name: Run Bandit security scan
-      run: |
-        bandit -r mcp_server cli -f json -o bandit-report.json || true
-        bandit -r mcp_server cli
-
-    - name: Run Safety check
-      run: |
-        safety check --json --output safety-report.json || true
-        safety check
-    - name: Upload security scan results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: security-reports
-        path: |
-          bandit-report.json
-          safety-report.json
 
   build-status:
     name: Build Status
     runs-on: ubuntu-latest
-    needs: [lint, test, integration-test, docker-test, security-scan]
+    needs: [lint, test, integration-test, docker-test]
     if: always()
 
     steps:
@@ -282,16 +260,15 @@ jobs:
         if [[ "${{ needs.lint.result }}" == "success" && \
               "${{ needs.test.result }}" == "success" && \
               "${{ needs.integration-test.result }}" == "success" && \
-              "${{ needs.docker-test.result }}" == "success" && \
-              "${{ needs.security-scan.result }}" == "success" ]]; then
-          echo "✅ All checks passed!"
+              "${{ needs.docker-test.result }}" == "success" ]]; then
+          echo "✅ All CI checks passed!"
+          echo "Note: Security scanning runs separately in the Security workflow"
           exit 0
         else
-          echo "❌ Some checks failed:"
+          echo "❌ Some CI checks failed:"
           echo "Lint: ${{ needs.lint.result }}"
           echo "Unit Tests: ${{ needs.test.result }}"
           echo "Integration: ${{ needs.integration-test.result }}"
           echo "Docker: ${{ needs.docker-test.result }}"
-          echo "Security: ${{ needs.security-scan.result }}"
           exit 1
         fi

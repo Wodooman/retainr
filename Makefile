@@ -30,8 +30,20 @@ logs-all: ## Show all service logs
 shell: ## Open a shell in the running container
 	docker-compose exec retainr bash
 
-test: ## Run tests in container
-	docker-compose exec retainr pytest
+test: ## Run all tests
+	source test-env/bin/activate && pytest tests/ -v
+
+test-unit: ## Run unit tests only
+	source test-env/bin/activate && pytest tests/unit/ -v
+
+test-integration: ## Run integration tests only
+	source test-env/bin/activate && pytest tests/integration/ -v
+
+test-cov: ## Run tests with coverage report
+	source test-env/bin/activate && pytest tests/ -v --cov=mcp_server --cov=cli --cov-report=html --cov-report=term-missing
+
+test-docker: ## Run tests in container
+	docker-compose exec retainr pytest tests/ -v
 
 clean: ## Clean up containers and images
 	docker-compose down -v
@@ -56,15 +68,15 @@ install-dev: ## Install development dependencies locally
 	pip install -r requirements-dev.txt
 
 run-local: ## Run server locally (requires local Python setup)
-	python -m uvicorn mcp_server.main:app --reload
+	source test-env/bin/activate && python -m uvicorn mcp_server.main:app --reload
 
 format: ## Format code
-	black .
-	ruff check --fix .
+	source test-env/bin/activate && black .
+	source test-env/bin/activate && ruff check --fix .
 
 lint: ## Lint code
-	ruff check .
-	mypy mcp_server cli
+	source test-env/bin/activate && ruff check .
+	source test-env/bin/activate && mypy mcp_server cli
 
 setup-claude-code: ## Setup Claude Code MCP integration
 	./setup-claude-code.sh

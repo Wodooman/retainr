@@ -1,5 +1,10 @@
 # 🧠 retainr
 
+[![CI Status](https://github.com/Wodooman/retainr/workflows/CI/badge.svg)](https://github.com/Wodooman/retainr/actions)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
+
 An open-source MCP (Model Context Protocol) Server that provides persistent memory storage for AI agents like Claude Code. Enable your AI assistants to remember context between sessions and across repositories.
 
 ## Features

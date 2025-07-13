@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MemoryEntry(BaseModel):
@@ -16,6 +16,13 @@ class MemoryEntry(BaseModel):
     content: str = Field(..., description="Memory content in markdown format")
     outdated: bool = Field(False, description="Whether this memory is outdated")
     timestamp: Optional[datetime] = Field(None, description="Creation timestamp")
+    
+    @field_validator('project', 'category', 'content')
+    @classmethod
+    def validate_non_empty_strings(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Field cannot be empty')
+        return v
     
     class Config:
         json_schema_extra = {
@@ -37,6 +44,13 @@ class MemorySearchParams(BaseModel):
     project: Optional[str] = Field(None, description="Filter by project")
     tags: Optional[List[str]] = Field(None, description="Filter by tags")
     top: int = Field(3, ge=1, le=10, description="Number of results to return")
+    
+    @field_validator('query')
+    @classmethod
+    def validate_non_empty_query(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Query cannot be empty')
+        return v
 
 
 class MemorySearchResult(BaseModel):

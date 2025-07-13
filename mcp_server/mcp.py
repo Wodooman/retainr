@@ -203,6 +203,9 @@ async def mcp_tool_call(request: MCPToolCallRequest):
         else:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {tool_name}")
             
+    except HTTPException:
+        # Re-raise HTTP exceptions to return proper status codes
+        raise
     except Exception as e:
         logger.error(f"Tool call failed: {e}")
         return MCPToolCallResponse(

@@ -166,3 +166,4 @@ memory/          # User memory files (markdown files with memories)
 /ai-memories/
 /claude-memories/
 /user-memories/
+memory/

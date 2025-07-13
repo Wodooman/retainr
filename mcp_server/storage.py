@@ -36,7 +36,7 @@ class MemoryStorage:
     
     def _generate_memory_id(self, file_path: Path) -> str:
         """Generate unique ID for memory entry based on file path."""
-        return hashlib.md5(str(file_path).encode()).hexdigest()[:12]
+        return hashlib.sha256(str(file_path).encode()).hexdigest()[:12]
     
     def save_memory(self, entry: MemoryEntry) -> tuple[str, Path]:
         """Save memory entry as markdown file.

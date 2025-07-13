@@ -7,14 +7,11 @@ This document explains how to configure branch protection rules to enforce code 
 The following checks are **required** for all PRs to the `main` and `develop` branches:
 
 ### 🔒 Required Checks
-- **Code Quality (Required)** - Black formatting and Ruff linting
-- **Unit Tests (Required)** - Python 3.9, 3.11, and 3.12
-- **Security Check (Required)** - Bandit and Safety scans
-- **Docker Build (Required)** - Ensures Docker builds successfully
-- **PR Checks Summary** - Overall status of all required checks
-
-### ℹ️ Optional Checks
-- **Integration Tests (Optional)** - Full system integration tests (informational only)
+- **Lint and Format Check** - Black formatting and Ruff linting
+- **Unit Tests** - Unit tests on Python 3.11 (matches production)
+- **Integration Tests** - Full system integration tests
+- **Docker Build Test** - Ensures Docker builds successfully
+- **Security Scan** - Bandit and Safety scans
 
 ## Setting Up Branch Protection
 
@@ -26,7 +23,7 @@ Use the GitHub CLI to set up branch protection rules automatically:
 # Set up branch protection for main branch
 gh api repos/:owner/:repo/branches/main/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["Code Quality (Required)","Unit Tests (Required) (3.9)","Unit Tests (Required) (3.11)","Unit Tests (Required) (3.12)","Security Check (Required)","Docker Build (Required)","PR Checks Summary"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test","Security Scan"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true,"require_code_owner_reviews":false}' \
   --field restrictions=null
@@ -34,7 +31,7 @@ gh api repos/:owner/:repo/branches/main/protection \
 # Set up branch protection for develop branch  
 gh api repos/:owner/:repo/branches/develop/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["Code Quality (Required)","Unit Tests (Required) (3.9)","Unit Tests (Required) (3.11)","Unit Tests (Required) (3.12)","Security Check (Required)","Docker Build (Required)","PR Checks Summary"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test","Security Scan"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"required_approving_review_count":1,"dismiss_stale_reviews":true,"require_code_owner_reviews":false}' \
   --field restrictions=null
@@ -55,13 +52,11 @@ gh api repos/:owner/:repo/branches/develop/protection \
 - ✅ **Require status checks to pass before merging**
   - ✅ Require branches to be up to date before merging
   - ✅ Required status checks:
-    - `Code Quality (Required)`
-    - `Unit Tests (Required) (3.9)`
-    - `Unit Tests (Required) (3.11)` 
-    - `Unit Tests (Required) (3.12)`
-    - `Security Check (Required)`
-    - `Docker Build (Required)`
-    - `PR Checks Summary`
+    - `Lint and Format Check`
+    - `Unit Tests`
+    - `Integration Tests`
+    - `Docker Build Test`
+    - `Security Scan`
 
 - ✅ **Require conversation resolution before merging**
 - ✅ **Restrict pushes that create files** (optional)

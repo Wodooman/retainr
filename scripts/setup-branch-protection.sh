@@ -24,16 +24,16 @@ fi
 
 echo "✅ GitHub CLI is ready"
 
-# Required status checks
-REQUIRED_CHECKS='["Code Quality (Required)","Unit Tests (Required) (3.9)","Unit Tests (Required) (3.11)","Unit Tests (Required) (3.12)","Security Check (Required)","Docker Build (Required)","PR Checks Summary"]'
+# Required status checks - using main CI workflow job names
+REQUIRED_CHECKS='["Lint and Format Check","Unit Tests","Integration Tests","Docker Build Test","Security Scan"]'
 
 echo ""
 echo "📋 Required status checks:"
-echo "  - Code Quality (Required)"
-echo "  - Unit Tests (Required) (3.9, 3.11, 3.12)"
-echo "  - Security Check (Required)"
-echo "  - Docker Build (Required)"
-echo "  - PR Checks Summary"
+echo "  - Lint and Format Check"
+echo "  - Unit Tests (Python 3.11)"
+echo "  - Integration Tests"
+echo "  - Docker Build Test"
+echo "  - Security Scan"
 
 # Function to set up branch protection
 setup_branch_protection() {

@@ -127,8 +127,8 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=raw,value=cache-{{branch}}
+          type=sha,prefix=${{ github.ref_name }}-
+          type=raw,value=cache-${{ github.ref_name }}
 
     # Strategy 1: Registry cache (most reliable for large images)
     - name: Build with registry cache

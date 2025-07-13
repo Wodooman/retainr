@@ -1,0 +1,274 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+# This workflow focuses on code quality and functionality testing:
+# - Lint and format checking
+# - Unit tests with coverage
+# - Integration tests with Docker
+# - Docker build verification
+#
+# Security scanning is handled separately by the Security workflow to avoid duplication.
+#
+# Advanced caching strategies for optimal performance:
+# - Built-in pip caching via setup-python action
+# - ML model caching (sentence-transformers in ~/.cache/huggingface)
+# - Docker layer caching with buildx
+# - ChromaDB image pre-pulling
+# - Centralized setup via composite action
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Check code formatting with Black
+      run: black --check --diff .
+
+    - name: Lint with Ruff
+      run: ruff check .
+
+    - name: Type check with MyPy
+      run: mypy mcp_server cli --ignore-missing-imports || echo "⚠️ MyPy found type issues (not blocking)"
+      continue-on-error: true
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Run unit tests
+      run: |
+        pytest tests/unit/ -v --cov=mcp_server --cov=cli --cov-report=xml --cov-report=term-missing
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Pre-pull ChromaDB Docker image
+      run: docker pull chromadb/chroma:latest
+
+    - name: Create .env file for Docker Compose
+      run: |
+        cat > .env << EOF
+        RETAINR_MEMORY_DIR=./memory
+        RETAINR_CHROMA_HOST=chroma
+        RETAINR_CHROMA_PORT=8000
+        RETAINR_CHROMA_COLLECTION=retainr_memories
+        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
+        EOF
+
+    - name: Build with Docker cache
+      run: |
+        docker buildx build \
+          --cache-from=type=local,src=/tmp/.buildx-cache \
+          --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
+          --load \
+          --tag retainr:latest .
+
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Start services with Docker Compose
+      run: |
+        docker compose up -d
+        echo "Waiting for services to start..."
+        sleep 10
+
+    - name: Check container status
+      run: |
+        docker compose ps
+        docker compose logs chroma
+        docker compose logs retainr
+
+    - name: Wait for ChromaDB to be ready
+      run: |
+        echo "Waiting for ChromaDB on port 8001..."
+        for i in {1..8}; do
+          if curl -s http://localhost:8001/ >/dev/null 2>&1; then
+            echo "ChromaDB is ready!"
+            break
+          else
+            echo "Attempt $i: ChromaDB not ready, waiting..."
+            if [ $i -eq 8 ]; then
+              echo "ChromaDB failed to start, checking what's on port 8001:"
+              curl -v http://localhost:8001/ || true
+              exit 1
+            fi
+            sleep 5
+          fi
+        done
+
+    - name: Wait for retainr server to be healthy
+      run: |
+        echo "Waiting for retainr server on port 8000..."
+        for i in {1..6}; do
+          if curl -f http://localhost:8000/health 2>/dev/null; then
+            echo "Server is healthy!"
+            break
+          else
+            echo "Attempt $i: Server not ready, waiting..."
+            if [ $i -eq 6 ]; then
+              echo "Server failed to start, showing logs:"
+              docker compose logs retainr
+              exit 1
+            fi
+            sleep 5
+          fi
+        done
+
+    - name: Run integration tests
+      run: |
+        pytest tests/integration/ -v
+
+    - name: Test CLI functionality
+      run: |
+        # Install CLI dependencies in current Python environment
+        pip install -e .
+
+        # Test basic CLI commands
+        python -m cli.main status
+
+        # Test API endpoints
+        curl -f http://localhost:8000/
+        curl -f http://localhost:8000/health
+        curl -X POST http://localhost:8000/mcp/tools/list
+
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        echo "=== Server Logs ==="
+        docker compose logs retainr
+        echo "=== ChromaDB Logs ==="
+        docker compose logs chroma
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker compose down -v
+
+  docker-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Pre-pull ChromaDB Docker image
+      run: docker pull chromadb/chroma:latest
+
+    - name: Create .env file for Docker Compose
+      run: |
+        cat > .env << EOF
+        RETAINR_MEMORY_DIR=./memory
+        RETAINR_CHROMA_HOST=chroma
+        RETAINR_CHROMA_PORT=8000
+        RETAINR_CHROMA_COLLECTION=retainr_memories
+        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
+        EOF
+
+    - name: Build with Docker cache
+      run: |
+        docker buildx build \
+          --cache-from=type=local,src=/tmp/.buildx-cache \
+          --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
+          --load \
+          --tag retainr:latest .
+
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Test Docker services start
+      run: |
+        docker compose up -d
+        sleep 30
+
+        # Test that services are accessible
+        curl -f http://localhost:8000/health
+
+        # Clean up
+        docker compose down
+
+
+  build-status:
+    name: Build Status
+    runs-on: ubuntu-latest
+    needs: [lint, test, integration-test, docker-test]
+    if: always()
+
+    steps:
+    - name: Check build status
+      run: |
+        if [[ "${{ needs.lint.result }}" == "success" && \
+              "${{ needs.test.result }}" == "success" && \
+              "${{ needs.integration-test.result }}" == "success" && \
+              "${{ needs.docker-test.result }}" == "success" ]]; then
+          echo "✅ All CI checks passed!"
+          echo "Note: Security scanning runs separately in the Security workflow"
+          exit 0
+        else
+          echo "❌ Some CI checks failed:"
+          echo "Lint: ${{ needs.lint.result }}"
+          echo "Unit Tests: ${{ needs.test.result }}"
+          echo "Integration: ${{ needs.integration-test.result }}"
+          echo "Docker: ${{ needs.docker-test.result }}"
+          exit 1
+        fi

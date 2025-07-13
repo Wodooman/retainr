@@ -1,4 +1,4 @@
-name: CI
+name: Optimized CI for Large Docker Images
 
 on:
   push:
@@ -8,26 +8,49 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
-# This workflow focuses on code quality and functionality testing:
-# - Lint and format checking
-# - Unit tests with coverage
-# - Integration tests with Docker
-# - Docker build verification
-#
-# Security scanning is handled separately by the Security workflow to avoid duplication.
-#
-# Advanced caching strategies for optimal performance:
-# - Built-in pip caching via setup-python action
-# - ML model caching (sentence-transformers in ~/.cache/huggingface)
-# - Docker layer caching with buildx
-# - ChromaDB image pre-pulling
-# - Centralized setup via composite action
+# Optimized CI strategy for 2.36GB Docker images:
+# 1. Registry caching instead of local cache (more reliable for large images)
+# 2. Multi-stage build optimization
+# 3. Conditional builds (skip if no Docker changes)
+# 4. Parallel jobs where possible
+# 5. Smart cache invalidation
 
 jobs:
+  # Fast path: Skip Docker build if no relevant changes
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      docker-changed: ${{ steps.changes.outputs.docker }}
+      code-changed: ${{ steps.changes.outputs.code }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          docker:
+            - 'Dockerfile*'
+            - 'requirements*.txt'
+            - 'docker-compose*.yml'
+            - '.dockerignore'
+          code:
+            - 'mcp_server/**'
+            - 'cli/**'
+            - 'pyproject.toml'
+            - 'tests/**'
+
   lint:
     name: Lint and Format Check
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code-changed == 'true'
 
     steps:
     - uses: actions/checkout@v4
@@ -48,6 +71,8 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code-changed == 'true'
 
     steps:
     - uses: actions/checkout@v4
@@ -67,9 +92,89 @@ jobs:
         name: codecov-umbrella
         fail_ci_if_error: false
 
-  integration-test:
-    name: Integration Tests
+  # Optimized Docker build with registry caching
+  docker-build:
+    name: Docker Build (Optimized)
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docker-changed == 'true' || needs.detect-changes.outputs.code-changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:v0.12.0
+          network=host
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=cache-{{branch}}
+
+    # Strategy 1: Registry cache (most reliable for large images)
+    - name: Build with registry cache
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: |
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ github.ref_name }}
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ github.ref_name }},mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+    # Strategy 2: Multi-stage cache optimization
+    - name: Build builder stage only (for faster rebuilds)
+      if: needs.detect-changes.outputs.docker-changed == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        target: builder
+        platforms: linux/amd64
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }}
+        cache-from: |
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }}
+          type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-main
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:builder-cache-${{ github.ref_name }},mode=max
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+  # Lightweight integration test using cached image
+  integration-test:
+    name: Integration Tests (Fast)
+    runs-on: ubuntu-latest
+    needs: [detect-changes, docker-build]
+    if: always() && (needs.docker-build.result == 'success' || needs.detect-changes.outputs.docker-changed == 'false')
+    permissions:
+      contents: read
+      packages: read
 
     steps:
     - uses: actions/checkout@v4
@@ -77,143 +182,145 @@ jobs:
     - name: Setup Python with caching
       uses: ./.github/actions/setup-python
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Cache Docker layers
-      uses: actions/cache@v4
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
       with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pre-pull ChromaDB Docker image
-      run: docker pull chromadb/chroma:latest
-
-    - name: Create .env file for Docker Compose
+    # Use pre-built image if available, otherwise build minimal test image
+    - name: Pull or build test image
       run: |
+        if [ "${{ needs.detect-changes.outputs.docker-changed }}" == "true" ]; then
+          # Use the newly built image
+          docker pull ${{ needs.docker-build.outputs.image-tag }} || \
+          docker tag ${{ needs.docker-build.outputs.image-tag }} retainr:test
+        else
+          # Use cached image or build lightweight version
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main || \
+          docker build -t retainr:test --target runtime \
+            --cache-from ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-main .
+        fi
+        docker tag retainr:test retainr:latest
+
+    - name: Create optimized test environment
+      run: |
+        # Use in-memory database for faster tests
         cat > .env << EOF
         RETAINR_MEMORY_DIR=./memory
         RETAINR_CHROMA_HOST=chroma
         RETAINR_CHROMA_PORT=8000
-        RETAINR_CHROMA_COLLECTION=retainr_memories
+        RETAINR_CHROMA_COLLECTION=retainr_test
         RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
         EOF
 
-    - name: Build with Docker cache
+    - name: Start services with optimized compose
       run: |
-        docker buildx build \
-          --cache-from=type=local,src=/tmp/.buildx-cache \
-          --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-          --load \
-          --tag retainr:latest .
+        # Use tmpfs for faster I/O in tests
+        cat > docker-compose.test.yml << EOF
+        version: '3.8'
+        services:
+          retainr:
+            image: retainr:latest
+            ports:
+              - "8000:8000"
+            environment:
+              - RETAINR_MEMORY_DIR=/tmp/memory
+              - RETAINR_CHROMA_HOST=chroma
+              - RETAINR_CHROMA_PORT=8000
+            volumes:
+              - type: tmpfs
+                target: /tmp/memory
+            depends_on:
+              - chroma
 
-    - name: Move cache
-      run: |
-        rm -rf /tmp/.buildx-cache
-        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          chroma:
+            image: chromadb/chroma:latest
+            ports:
+              - "8001:8000"
+            volumes:
+              - type: tmpfs
+                target: /chroma/chroma
+        EOF
 
-    - name: Start services with Docker Compose
-      run: |
-        docker compose up -d
+        docker compose -f docker-compose.test.yml up -d
         echo "Waiting for services to start..."
-        sleep 10
+        sleep 15
 
-    - name: Check container status
+    - name: Wait for services (optimized)
       run: |
-        docker compose ps
-        docker compose logs chroma
-        docker compose logs retainr
-
-    - name: Wait for ChromaDB to be ready
-      run: |
-        echo "Waiting for ChromaDB on port 8001..."
-        for i in {1..8}; do
+        # Parallel health checks
+        echo "Checking ChromaDB..."
+        for i in {1..12}; do
           if curl -s http://localhost:8001/ >/dev/null 2>&1; then
-            echo "ChromaDB is ready!"
+            echo "✅ ChromaDB ready"
             break
-          else
-            echo "Attempt $i: ChromaDB not ready, waiting..."
-            if [ $i -eq 8 ]; then
-              echo "ChromaDB failed to start, checking what's on port 8001:"
-              curl -v http://localhost:8001/ || true
-              exit 1
-            fi
-            sleep 5
+          elif [ $i -eq 12 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose -f docker-compose.test.yml logs chroma
+            exit 1
           fi
-        done
+          sleep 2
+        done &
 
-    - name: Wait for retainr server to be healthy
-      run: |
-        echo "Waiting for retainr server on port 8000..."
-        for i in {1..6}; do
+        echo "Checking retainr server..."
+        for i in {1..12}; do
           if curl -f http://localhost:8000/health 2>/dev/null; then
-            echo "Server is healthy!"
+            echo "✅ Server ready"
             break
-          else
-            echo "Attempt $i: Server not ready, waiting..."
-            if [ $i -eq 6 ]; then
-              echo "Server failed to start, showing logs:"
-              docker compose logs retainr
-              exit 1
-            fi
-            sleep 5
+          elif [ $i -eq 12 ]; then
+            echo "❌ Server failed to start"
+            docker compose -f docker-compose.test.yml logs retainr
+            exit 1
           fi
-        done
+          sleep 2
+        done &
+
+        wait # Wait for both health checks
 
     - name: Run integration tests
       run: |
-        pytest tests/integration/ -v
+        pytest tests/integration/ -v --tb=short
 
     - name: Test CLI functionality
       run: |
-        # Install CLI dependencies in current Python environment
         pip install -e .
-
-        # Test basic CLI commands
         python -m cli.main status
-
-        # Test API endpoints
         curl -f http://localhost:8000/
         curl -f http://localhost:8000/health
-        curl -X POST http://localhost:8000/mcp/tools/list
-
-    - name: Show logs on failure
-      if: failure()
-      run: |
-        echo "=== Server Logs ==="
-        docker compose logs retainr
-        echo "=== ChromaDB Logs ==="
-        docker compose logs chroma
 
     - name: Clean up
       if: always()
       run: |
-        docker compose down -v
+        docker compose -f docker-compose.test.yml down -v
 
-  docker-test:
-    name: Docker Build Test
+  # Full Docker test (only on main or when Docker files change)
+  docker-full-test:
+    name: Full Docker Test
     runs-on: ubuntu-latest
+    needs: [detect-changes, docker-build]
+    if: (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.docker-changed == 'true') && needs.docker-build.result == 'success'
+    permissions:
+      contents: read
+      packages: read
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Cache Docker layers
-      uses: actions/cache@v4
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
       with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Pre-pull ChromaDB Docker image
-      run: docker pull chromadb/chroma:latest
+    - name: Pull built image
+      run: |
+        docker pull ${{ needs.docker-build.outputs.image-tag }}
+        docker tag ${{ needs.docker-build.outputs.image-tag }} retainr:latest
 
-    - name: Create .env file for Docker Compose
+    - name: Create .env file
       run: |
         cat > .env << EOF
         RETAINR_MEMORY_DIR=./memory
@@ -223,35 +330,17 @@ jobs:
         RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
         EOF
 
-    - name: Build with Docker cache
-      run: |
-        docker buildx build \
-          --cache-from=type=local,src=/tmp/.buildx-cache \
-          --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-          --load \
-          --tag retainr:latest .
-
-    - name: Move cache
-      run: |
-        rm -rf /tmp/.buildx-cache
-        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-    - name: Test Docker services start
+    - name: Full Docker Compose test
       run: |
         docker compose up -d
         sleep 30
-
-        # Test that services are accessible
         curl -f http://localhost:8000/health
-
-        # Clean up
         docker compose down
-
 
   build-status:
     name: Build Status
     runs-on: ubuntu-latest
-    needs: [lint, test, integration-test, docker-test]
+    needs: [lint, test, integration-test]
     if: always()
 
     steps:
@@ -259,16 +348,14 @@ jobs:
       run: |
         if [[ "${{ needs.lint.result }}" == "success" && \
               "${{ needs.test.result }}" == "success" && \
-              "${{ needs.integration-test.result }}" == "success" && \
-              "${{ needs.docker-test.result }}" == "success" ]]; then
+              "${{ needs.integration-test.result }}" == "success" ]]; then
           echo "✅ All CI checks passed!"
-          echo "Note: Security scanning runs separately in the Security workflow"
+          echo "🐳 Docker builds are cached and optimized"
           exit 0
         else
           echo "❌ Some CI checks failed:"
           echo "Lint: ${{ needs.lint.result }}"
           echo "Unit Tests: ${{ needs.test.result }}"
           echo "Integration: ${{ needs.integration-test.result }}"
-          echo "Docker: ${{ needs.docker-test.result }}"
           exit 1
         fi

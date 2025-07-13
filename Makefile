@@ -74,9 +74,19 @@ format: ## Format code
 	source test-env/bin/activate && black .
 	source test-env/bin/activate && ruff check --fix .
 
-lint: ## Lint code
+lint: ## Lint code (same as CI)
+	source test-env/bin/activate && black --check --diff .
 	source test-env/bin/activate && ruff check .
-	source test-env/bin/activate && mypy mcp_server cli
+	source test-env/bin/activate && mypy mcp_server cli --ignore-missing-imports
+
+pre-commit-install: ## Install pre-commit hooks
+	source test-env/bin/activate && pre-commit install
+
+pre-commit-run: ## Run pre-commit hooks on all files
+	source test-env/bin/activate && pre-commit run --all-files
+
+pre-commit-update: ## Update pre-commit hooks
+	source test-env/bin/activate && pre-commit autoupdate
 
 setup-claude-code: ## Setup Claude Code MCP integration
 	./setup-claude-code.sh

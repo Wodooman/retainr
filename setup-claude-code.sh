@@ -35,7 +35,7 @@ echo "✅ MCP configuration installed: $MCP_CONFIG_FILE"
 echo "🔍 Checking if retainr server is running..."
 if curl -s http://localhost:8000/health > /dev/null; then
     echo "✅ retainr server is running at http://localhost:8000"
-    
+
     # Test MCP endpoints
     echo "🧪 Testing MCP endpoints..."
     if curl -s http://localhost:8000/mcp/tools/list > /dev/null; then

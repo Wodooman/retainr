@@ -68,12 +68,8 @@ else
     echo "⚠️ 'main' branch not found, skipping"
 fi
 
-# Set up protection for develop branch
-if gh api repos/$REPO_OWNER/$REPO_NAME/branches/develop &> /dev/null; then
-    setup_branch_protection "develop"
-else
-    echo "⚠️ 'develop' branch not found, skipping"
-fi
+# Note: Only protecting main branch - using simple workflow
+# Short-lived feature branches → main (no develop branch)
 
 echo ""
 echo "🎉 Branch protection setup complete!"

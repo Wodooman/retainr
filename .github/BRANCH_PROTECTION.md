@@ -4,7 +4,9 @@ This document explains how to configure branch protection rules to enforce code 
 
 ## Required Status Checks
 
-The following checks are **required** for all PRs to the `main` and `develop` branches:
+The following checks are **required** for all PRs to the `main` branch:
+
+> **Note**: This repo uses a simple workflow with short-lived feature branches merging directly to `main`. CI runs only on pull requests.
 
 ### 🔒 Required Checks
 - **Lint and Format Check** - Black formatting and Ruff linting
@@ -63,7 +65,7 @@ gh api repos/:owner/:repo/branches/develop/protection \
 - ✅ **Restrict pushes that create files** (optional)
 - ✅ **Do not allow bypassing the above settings** (recommended)
 
-4. Repeat the same settings for `develop` branch
+4. This repo only uses `main` branch protection (no `develop` branch)
 
 ## What This Enforces
 
@@ -90,10 +92,10 @@ gh api repos/:owner/:repo/branches/develop/protection \
 
 ### For Contributors
 
-1. **Create feature branch** from `develop`
+1. **Create feature branch** from `main`
    ```bash
-   git checkout develop
-   git pull origin develop
+   git checkout main
+   git pull origin main
    git checkout -b feature/your-feature
    ```
 

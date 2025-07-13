@@ -112,7 +112,7 @@ jobs:
     
     - name: Start services with Docker Compose
       run: |
-        docker-compose up -d
+        docker compose up -d
         sleep 30  # Wait for services to be ready
     
     - name: Wait for services to be healthy
@@ -144,7 +144,7 @@ jobs:
     - name: Clean up
       if: always()
       run: |
-        docker-compose down -v
+        docker compose down -v
 
   docker-test:
     name: Docker Build Test
@@ -158,18 +158,18 @@ jobs:
     
     - name: Test Docker build
       run: |
-        docker-compose build
+        docker compose build
     
     - name: Test Docker services start
       run: |
-        docker-compose up -d
+        docker compose up -d
         sleep 30
         
         # Test that services are accessible
         curl -f http://localhost:8000/health
         
         # Clean up
-        docker-compose down
+        docker compose down
 
   security-scan:
     name: Security Scan

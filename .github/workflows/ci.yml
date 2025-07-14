@@ -326,7 +326,7 @@ jobs:
 
             if [ $i -eq ${{ env.HEALTH_CHECK_RETRIES }} ]; then
               echo "❌ ${service} failed to start"
-              docker compose -f docker-compose.test.yml logs "${service,,}"
+              docker compose -f docker-compose.test.yml logs chroma
               return 1
             fi
 

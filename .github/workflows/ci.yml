@@ -335,7 +335,7 @@ jobs:
         }
 
         # Check both services in parallel
-        check_service "ChromaDB" "http://localhost:8001/api/v1/heartbeat" "8001" &
+        check_service "ChromaDB" "http://localhost:8001/api/v2/heartbeat" "8001" &
         PID1=$!
 
         check_service "Retainr" "http://localhost:8000/health" "8000" &

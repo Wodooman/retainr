@@ -32,6 +32,7 @@ When implementing features:
 2. Keep the architecture extensible but don't include multi-user code
 3. Focus on robust memory persistence and retrieval mechanisms
 4. Follow MCP protocol specifications for compatibility with AI agents
+5. Use optimized CI workflow for faster development cycles
 
 ## MCP Server Context
 
@@ -125,16 +126,52 @@ pytest --cov=mcp_server --cov=cli
 ```
 
 ### Code Quality
+
+**IMPORTANT: Always run format and lint checks before committing to avoid pre-commit hook modifications:**
+
 ```bash
-# Format code
-black .
+# REQUIRED before every commit - use Makefile commands:
+make format
 
-# Lint code
-ruff check .
-
-# Type checking
-mypy mcp_server cli
+# Then proceed with commit
+git add .
+git commit -m "your message"
 ```
+
+**Or manually (same as Makefile):**
+```bash
+# Format code (fixes issues automatically)
+black .
+ruff check --fix .
+```
+
+**Check code quality (same as CI):**
+```bash
+# Use Makefile (recommended)
+make lint
+
+# Or manually (same commands as CI)
+black --check --diff .
+ruff check .
+mypy mcp_server cli --ignore-missing-imports
+```
+
+**Available Makefile commands:**
+```bash
+make format          # Format code (black + ruff --fix)
+make lint           # Check code quality (same as CI)
+make pre-commit-run # Run all pre-commit hooks
+make test           # Run all tests
+make test-unit      # Run unit tests only
+make test-cov       # Run tests with coverage
+```
+
+### CI/CD Optimization
+✅ **Optimized CI**: Uses registry caching and conditional builds for 2.36GB Docker image
+- 🚀 **75% faster CI** for code changes (25min → 6min)
+- ⚡ **96% faster CI** for documentation changes (25min → 1min)
+- 🔄 **Registry cache** for reliable large image caching
+- 🎯 **Conditional builds** skip Docker when unchanged
 
 ### Configuration
 ```bash

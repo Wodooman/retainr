@@ -1,0 +1,500 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  # Note: Using simple workflow - short-lived feature branches → main
+  # All changes must go through PRs to main branch
+
+# Prevent multiple CI runs for the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Core configuration
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+
+  # Derived image names (computed once, used everywhere)
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+
+  # Cache configuration
+  CACHE_MAIN_TAG: cache-main
+  BUILDER_CACHE_PREFIX: builder-cache
+
+  # Test configuration
+  TEST_TIMEOUT: 30
+  HEALTH_CHECK_RETRIES: 12
+
+# Optimized CI strategy for 2.36GB Docker images:
+# 1. Registry caching instead of local cache (more reliable for large images)
+# 2. Multi-stage build optimization
+# 3. Conditional builds (skip if no Docker changes)
+# 4. Parallel jobs where possible
+# 5. Smart cache invalidation
+
+jobs:
+  # Fast path: Skip Docker build if no relevant changes
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docker-changed: ${{ steps.changes.outputs.docker }}
+      code-changed: ${{ steps.changes.outputs.code }}
+      # Computed values for use in other jobs
+      image-name: ${{ steps.vars.outputs.image-name }}
+      branch-tag: ${{ steps.vars.outputs.branch-tag }}
+      cache-tag: ${{ steps.vars.outputs.cache-tag }}
+      builder-cache-tag: ${{ steps.vars.outputs.builder-cache-tag }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          docker:
+            - 'Dockerfile*'
+            - 'requirements*.txt'
+            - 'docker-compose*.yml'
+            - '.dockerignore'
+          code:
+            - 'mcp_server/**'
+            - 'cli/**'
+            - 'pyproject.toml'
+            - 'tests/**'
+
+    # Compute all derived variables once
+    - name: Set derived variables
+      id: vars
+      run: |
+        # Repository name in lowercase
+        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        echo "image-name=${REGISTRY}/${REPO_LOWER}" >> $GITHUB_OUTPUT
+
+        # Branch/PR ref sanitized for Docker tags
+        SAFE_REF=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9]/-/g')
+        echo "branch-tag=${SAFE_REF}" >> $GITHUB_OUTPUT
+
+        # Cache tags
+        echo "cache-tag=cache-${SAFE_REF}" >> $GITHUB_OUTPUT
+        echo "builder-cache-tag=builder-cache-${SAFE_REF}" >> $GITHUB_OUTPUT
+
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code-changed == 'true'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Check code formatting with Black
+      run: black --check --diff .
+
+    - name: Lint with Ruff
+      run: ruff check .
+
+    - name: Type check with MyPy
+      run: mypy mcp_server cli --ignore-missing-imports || echo "⚠️ MyPy found type issues (not blocking)"
+      continue-on-error: true
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: detect-changes
+    if: needs.detect-changes.outputs.code-changed == 'true'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Run unit tests
+      run: |
+        pytest tests/unit/ -v --cov=mcp_server --cov=cli --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
+
+    - name: Upload test artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-unit
+        path: |
+          .coverage
+          coverage.xml
+          test-results.xml
+        retention-days: 7
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  # Optimized Docker build with registry caching
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, lint, test]
+    if: |
+      (needs.detect-changes.outputs.docker-changed == 'true' || needs.detect-changes.outputs.code-changed == 'true') &&
+      needs.lint.result != 'failure' && needs.test.result != 'failure'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      # Import computed variables from detect-changes
+      IMAGE_NAME: ${{ needs.detect-changes.outputs.image-name }}
+      BRANCH_TAG: ${{ needs.detect-changes.outputs.branch-tag }}
+      CACHE_TAG: ${{ needs.detect-changes.outputs.cache-tag }}
+      BUILDER_CACHE_TAG: ${{ needs.detect-changes.outputs.builder-cache-tag }}
+
+    outputs:
+      # Simple, single image tag for other jobs to use
+      image: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:v0.12.0
+          network=host
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Strategy 1: Registry cache (most reliable for large images)
+    - name: Build with registry cache
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        # Simple, predictable tag
+        tags: |
+          ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+          ${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }}
+        cache-from: |
+          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }}
+          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}
+        cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }},mode=max
+        build-args: |
+          BUILDKIT_INLINE_CACHE=1
+
+    # Strategy 2: Multi-stage cache optimization
+    - name: Build builder stage only (for faster rebuilds)
+      if: needs.detect-changes.outputs.docker-changed == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        target: builder
+        platforms: linux/amd64
+        push: true
+        tags: ${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }}
+        cache-from: |
+          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }}
+          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_PREFIX }}-main
+        cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }},mode=max
+
+  # Lightweight integration test using cached image
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [detect-changes, lint, test, docker-build]
+    if: |
+      needs.lint.result == 'success' && needs.test.result == 'success' &&
+      (needs.docker-build.result == 'success' || needs.docker-build.result == 'skipped')
+    permissions:
+      contents: read
+      packages: read
+
+    env:
+      # Use the simple image output from docker-build
+      TEST_IMAGE: ${{ needs.docker-build.outputs.image || 'retainr:latest' }}
+      IMAGE_NAME: ${{ needs.detect-changes.outputs.image-name }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Log in to Container Registry
+      if: needs.docker-build.result == 'success'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull or build test image
+      run: |
+        if [ "${{ needs.docker-build.result }}" == "success" ]; then
+          # Use the image built in docker-build job
+          echo "Using pre-built image: ${{ env.TEST_IMAGE }}"
+          docker pull "${{ env.TEST_IMAGE }}"
+          docker tag "${{ env.TEST_IMAGE }}" retainr:latest
+        else
+          # Build minimal test image if docker-build was skipped
+          echo "Building minimal test image..."
+          docker pull "${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}" || true
+          docker build -t retainr:latest --target runtime \
+            --cache-from "${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}" .
+        fi
+
+    - name: Create test environment
+      run: |
+        # Create test configuration
+        cat > .env << EOF
+        RETAINR_MEMORY_DIR=./memory
+        RETAINR_CHROMA_HOST=chroma
+        RETAINR_CHROMA_PORT=8000
+        RETAINR_CHROMA_COLLECTION=retainr_test
+        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
+        EOF
+
+    - name: Start services
+      run: |
+        # Create optimized compose file with tmpfs for faster I/O
+        cat > docker-compose.test.yml << 'EOF'
+        version: '3.8'
+        services:
+          retainr:
+            image: retainr:latest
+            ports:
+              - "8000:8000"
+            environment:
+              - RETAINR_MEMORY_DIR=/tmp/memory
+              - RETAINR_CHROMA_HOST=chroma
+              - RETAINR_CHROMA_PORT=8000
+            volumes:
+              - type: tmpfs
+                target: /tmp/memory
+            depends_on:
+              - chroma
+
+          chroma:
+            image: chromadb/chroma:latest
+            ports:
+              - "8001:8000"
+            volumes:
+              - type: tmpfs
+                target: /chroma/chroma
+        EOF
+
+        docker compose -f docker-compose.test.yml up -d
+
+    - name: Wait for services
+      run: |
+        # Function to check service health
+        check_service() {
+          local service=$1
+          local url=$2
+          local port=$3
+
+          echo "Checking ${service}..."
+          for i in $(seq 1 ${{ env.HEALTH_CHECK_RETRIES }}); do
+            if curl -sf "${url}" >/dev/null 2>&1; then
+              echo "✅ ${service} ready"
+              return 0
+            fi
+
+            if [ $i -eq ${{ env.HEALTH_CHECK_RETRIES }} ]; then
+              echo "❌ ${service} failed to start"
+              docker compose -f docker-compose.test.yml logs chroma
+              return 1
+            fi
+
+            sleep 2
+          done
+        }
+
+        # Check both services in parallel
+        check_service "ChromaDB" "http://localhost:8001/api/v2/heartbeat" "8001" &
+        PID1=$!
+
+        check_service "Retainr" "http://localhost:8000/health" "8000" &
+        PID2=$!
+
+        # Wait for both checks
+        wait $PID1 && wait $PID2
+
+    - name: Run integration tests
+      run: |
+        pytest tests/integration/ -v --tb=short --junitxml=integration-test-results.xml || TESTS_FAILED=1
+        echo "TESTS_FAILED=${TESTS_FAILED:-0}" >> $GITHUB_ENV
+
+    - name: Upload integration test artifacts
+      if: failure() || env.TESTS_FAILED == '1'
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-integration
+        path: |
+          integration-test-results.xml
+          docker-compose.test.yml
+        retention-days: 7
+
+    - name: Collect Docker logs on failure
+      if: failure() || env.TESTS_FAILED == '1'
+      run: |
+        mkdir -p docker-logs
+        docker compose -f docker-compose.test.yml logs > docker-logs/compose.log 2>&1 || true
+        docker ps -a > docker-logs/containers.txt || true
+
+    - name: Upload Docker logs
+      if: failure() || env.TESTS_FAILED == '1'
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-logs
+        path: docker-logs/
+        retention-days: 7
+
+    - name: Exit if tests failed
+      if: env.TESTS_FAILED == '1'
+      run: exit 1
+
+    - name: Test CLI functionality
+      run: |
+        pip install -e .
+        python -m cli.main status
+        curl -f http://localhost:8000/
+        curl -f http://localhost:8000/health
+
+    - name: Clean up
+      if: always()
+      run: |
+        if [ -f docker-compose.test.yml ]; then
+          docker compose -f docker-compose.test.yml down -v || true
+        fi
+
+  # Full Docker test (only on main or when Docker files change)
+  docker-full-test:
+    name: Full Docker Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [detect-changes, docker-build]
+    if: (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.docker-changed == 'true') && needs.docker-build.result == 'success'
+    permissions:
+      contents: read
+      packages: read
+
+    env:
+      TEST_IMAGE: ${{ needs.docker-build.outputs.image }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull and test image
+      run: |
+        echo "Testing image: ${{ env.TEST_IMAGE }}"
+        docker pull "${{ env.TEST_IMAGE }}"
+        docker tag "${{ env.TEST_IMAGE }}" retainr:latest
+
+        # Create production-like environment
+        cat > .env << EOF
+        RETAINR_MEMORY_DIR=./memory
+        RETAINR_CHROMA_HOST=chroma
+        RETAINR_CHROMA_PORT=8000
+        RETAINR_CHROMA_COLLECTION=retainr_memories
+        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
+        EOF
+
+        # Run full compose stack
+        docker compose up -d
+        sleep ${{ env.TEST_TIMEOUT }}
+
+        # Verify health
+        curl -f http://localhost:8000/health
+
+        # Clean up
+        docker compose down
+
+  build-status:
+    name: Build Status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, test, docker-build, integration-test]
+    if: always()
+
+    steps:
+    - name: Check build status
+      run: |
+        # Define status check function
+        check_status() {
+          local job=$1
+          local status=$2
+
+          if [ "${status}" == "success" ]; then
+            echo "✅ ${job}: Passed"
+            return 0
+          else
+            echo "❌ ${job}: Failed (${status})"
+            return 1
+          fi
+        }
+
+        # Check all required jobs
+        FAILED=0
+        check_status "Lint" "${{ needs.lint.result }}" || FAILED=1
+        check_status "Unit Tests" "${{ needs.test.result }}" || FAILED=1
+        check_status "Docker Build" "${{ needs.docker-build.result }}" || FAILED=1
+        check_status "Integration Tests" "${{ needs.integration-test.result }}" || FAILED=1
+
+        # Create job summary
+        echo "## CI Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Unit Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Integration Tests | ${{ needs.integration-test.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [ $FAILED -eq 0 ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **All CI checks passed!**" >> $GITHUB_STEP_SUMMARY
+          echo "🐳 Docker builds are cached and optimized" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "✅ All CI checks passed!"
+          echo "🐳 Docker builds are cached and optimized"
+          exit 0
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Some CI checks failed - see details above**" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "❌ Some CI checks failed - see details above"
+          exit 1
+        fi

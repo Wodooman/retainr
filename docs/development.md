@@ -11,11 +11,43 @@ This guide covers development workflows, debugging, and contribution guidelines 
 git clone https://github.com/Wodooman/retainr.git
 cd retainr
 
+# Create virtual environment
+python3 -m venv test-env
+source test-env/bin/activate
+
 # Install dependencies
 pip install -r requirements-dev.txt
 
+# Install pre-commit hooks
+make pre-commit-install
+
 # Run locally (requires ChromaDB separately)
 python -m uvicorn mcp_server.main:app --reload
+```
+
+### Pre-commit Hooks
+
+We use pre-commit hooks to ensure code quality. These hooks run the same checks as our CI pipeline:
+
+```bash
+# Install hooks (run once)
+make pre-commit-install
+
+# Run hooks on all files
+make pre-commit-run
+
+# Update hook versions
+make pre-commit-update
+```
+
+**What the hooks check:**
+- **Black**: Code formatting
+- **Ruff**: Linting and code quality
+- **File checks**: Trailing whitespace, end-of-file fixes, YAML/JSON validation
+
+The hooks will automatically fix most issues. If you need to bypass hooks temporarily:
+```bash
+git commit --no-verify -m "your message"
 ```
 
 ### Docker Development

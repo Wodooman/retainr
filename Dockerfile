@@ -28,8 +28,8 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN groupadd -r retainr && useradd -r -g retainr retainr
+# Create non-root user for security with home directory
+RUN groupadd -r retainr && useradd -r -g retainr -m -d /home/retainr retainr
 
 # Set working directory
 WORKDIR /app
@@ -44,14 +44,17 @@ RUN pip install --upgrade pip \
     && rm -rf /wheels /tmp/requirements.txt \
     && pip cache purge
 
+# Pre-download the embedding model to avoid runtime downloads
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Copy application code
 COPY --chown=retainr:retainr mcp_server/ ./mcp_server/
 COPY --chown=retainr:retainr cli/ ./cli/
 COPY --chown=retainr:retainr pyproject.toml ./
 
-# Create directories for data persistence
-RUN mkdir -p /app/memory /app/chroma \
-    && chown -R retainr:retainr /app
+# Create directories for data persistence and model cache
+RUN mkdir -p /app/memory /app/chroma /home/retainr/.cache \
+    && chown -R retainr:retainr /app /home/retainr
 
 # Switch to non-root user
 USER retainr

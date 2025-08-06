@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "retainr": {
+      "transport": {
+        "type": "stdio",
+        "command": "python",
+        "args": ["-m", "mcp_server"],
+        "cwd": "/Users/volodymyrdubenko/projects/retainr",
+        "env": {
+          "PATH": "/Users/volodymyrdubenko/projects/retainr/venv/bin:$PATH"
+        }
+      },
+      "description": "Persistent memory server for AI agents"
+    }
+  }
+}

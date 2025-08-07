@@ -26,8 +26,8 @@ jobs:
 
     - name: Run Bandit security scan
       run: |
-        bandit -r mcp_server cli -f json -o bandit-report.json || true
-        bandit -r mcp_server cli
+        bandit -r mcp_server -f json -o bandit-report.json || true
+        bandit -r mcp_server
 
     - name: Run Safety dependency check
       run: |
@@ -36,8 +36,8 @@ jobs:
 
     - name: Run Semgrep security scan
       run: |
-        semgrep --config=auto mcp_server cli --json -o semgrep-report.json || true
-        semgrep --config=auto mcp_server cli
+        semgrep --config=auto mcp_server --json -o semgrep-report.json || true
+        semgrep --config=auto mcp_server
 
     - name: Upload security scan results
       uses: actions/upload-artifact@v4

@@ -79,7 +79,7 @@ def chromadb_service(test_mode, project_root):
 
         # Start ChromaDB if not running
         subprocess.run(
-            ["docker-compose", "-f", "docker-compose.chromadb.yml", "up", "-d"],
+            ["docker", "compose", "up", "-d"],
             cwd=project_root,
             check=True,
         )
@@ -104,7 +104,10 @@ def chromadb_service(test_mode, project_root):
     elif test_mode == "docker":
         # For Docker mode, use existing logic
         result = subprocess.run(
-            ["docker-compose", "ps"], cwd=project_root, capture_output=True, text=True
+            ["docker", "compose", "ps"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
         )
 
         if result.returncode != 0 or "Up" not in result.stdout:

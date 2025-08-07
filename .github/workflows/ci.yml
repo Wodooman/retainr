@@ -158,7 +158,7 @@ jobs:
     - name: Test ChromaDB Docker setup
       run: |
         # Start ChromaDB service
-        docker-compose up -d
+        docker compose up -d
 
         # Wait for ChromaDB to be ready
         for i in {1..30}; do
@@ -168,14 +168,14 @@ jobs:
           fi
           if [ $i -eq 30 ]; then
             echo "❌ ChromaDB failed to start"
-            docker-compose logs
+            docker compose logs
             exit 1
           fi
           sleep 2
         done
 
         # Clean up
-        docker-compose down
+        docker compose down
 
   # Native integration tests
   integration-test:
@@ -196,7 +196,7 @@ jobs:
     - name: Start ChromaDB
       run: |
         # Start ChromaDB service
-        docker-compose up -d
+        docker compose up -d
 
         # Wait for ChromaDB to be ready
         for i in {1..30}; do
@@ -206,7 +206,7 @@ jobs:
           fi
           if [ $i -eq 30 ]; then
             echo "❌ ChromaDB failed to start"
-            docker-compose logs
+            docker compose logs
             exit 1
           fi
           sleep 2
@@ -228,7 +228,7 @@ jobs:
     - name: Clean up
       if: always()
       run: |
-        docker-compose down -v || true
+        docker compose down -v || true
 
 
   build-status:

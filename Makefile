@@ -1,99 +1,124 @@
-.PHONY: help build up down logs shell test clean dev
+.PHONY: help test clean setup start-mcp start-chromadb venv venv-dev format lint
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the Docker image
-	docker-compose build
+# ======================================================
+# NATIVE MODE COMMANDS (Recommended)
+# ======================================================
 
-up: ## Start the server and ChromaDB
+setup: ## Full setup: install deps + start ChromaDB + setup Claude Code
+	./setup.sh
+
+venv: ## Create and setup virtual environment with dependencies
+	@if [ ! -d "venv" ]; then echo "🔧 Creating virtual environment..."; python3 -m venv venv; fi
+	@echo "📦 Installing dependencies..."
+	@source venv/bin/activate && pip install --upgrade pip --quiet
+	@source venv/bin/activate && pip install -r requirements-native.txt --quiet
+	@echo "✅ Virtual environment ready at ./venv/"
+
+venv-dev: ## Setup virtual environment with dev dependencies
+	@if [ ! -d "venv" ]; then echo "🔧 Creating virtual environment..."; python3 -m venv venv; fi
+	@echo "📦 Installing dependencies..."
+	@source venv/bin/activate && pip install --upgrade pip --quiet
+	@source venv/bin/activate && pip install -r requirements-native.txt --quiet
+	@source venv/bin/activate && pip install -r requirements-dev.txt --quiet
+	@echo "✅ Development environment ready at ./venv/"
+
+start-chromadb: ## Start ChromaDB service (Docker)
 	docker-compose up -d
 
-dev: ## Start the server in development mode with hot reload
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
-
-prod: ## Start in production mode (no dev mounts)
-	docker-compose -f docker-compose.prod.yml up -d
-
-down: ## Stop all services
+stop-chromadb: ## Stop ChromaDB service
 	docker-compose down
 
-logs: ## Show server logs
-	docker-compose logs -f retainr
-
-logs-chroma: ## Show ChromaDB logs
-	docker-compose logs -f chroma
-
-logs-all: ## Show all service logs
-	docker-compose logs -f
-
-shell: ## Open a shell in the running container
-	docker-compose exec retainr bash
-
-test: ## Run all tests
-	source test-env/bin/activate && pytest tests/ -v
-
-test-unit: ## Run unit tests only
-	source test-env/bin/activate && pytest tests/unit/ -v
-
-test-integration: ## Run integration tests only
-	source test-env/bin/activate && pytest tests/integration/ -v
-
-test-cov: ## Run tests with coverage report
-	source test-env/bin/activate && pytest tests/ -v --cov=mcp_server --cov=cli --cov-report=html --cov-report=term-missing
-
-test-docker: ## Run tests in container
-	docker-compose exec retainr pytest tests/ -v
-
-clean: ## Clean up containers and images
-	docker-compose down -v
-	docker system prune -f
-
-status: ## Show service status
-	docker-compose ps
-
-restart: ## Restart all services
+restart-chromadb: ## Restart ChromaDB service
 	docker-compose restart
 
-restart-server: ## Restart only the retainr server
-	docker-compose restart retainr
+chromadb-status: ## Show ChromaDB status
+	docker-compose ps
 
-restart-chroma: ## Restart only ChromaDB
-	docker-compose restart chroma
+start-mcp: ## Start native MCP server (requires setup)
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "🚀 Starting native MCP server..."
+	source venv/bin/activate && python -m mcp_server
 
-install: ## Install dependencies locally
-	pip install -r requirements.txt
+dev-native: ## Start native MCP server in development mode with auto-reload
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	@echo "🔄 Starting native MCP server in development mode..."
+	source venv/bin/activate && python -m mcp_server --reload
 
-install-dev: ## Install development dependencies locally
-	pip install -r requirements-dev.txt
+test-mcp-native: ## Test native MCP server connectivity
+	@if [ ! -d "venv" ]; then echo "❌ Virtual environment not found. Run 'make setup' first."; exit 1; fi
+	source venv/bin/activate && python -c "from mcp_server.standard_mcp import mcp; print('✅ Native MCP server loads successfully')"
 
-run-local: ## Run server locally (requires local Python setup)
-	source test-env/bin/activate && python -m uvicorn mcp_server.main:app --reload
+health-check: ## Check health of all services (ChromaDB + MCP server readiness)
+	@echo "🔍 Checking ChromaDB..."
+	@if curl -f http://localhost:8000/api/v2/heartbeat &>/dev/null; then echo "✅ ChromaDB is running"; else echo "❌ ChromaDB is not accessible"; fi
+	@echo "🔍 Checking Python environment..."
+	@if [ -d "venv" ]; then echo "✅ Virtual environment exists"; else echo "❌ Virtual environment not found"; fi
+	@if [ -f "venv/bin/activate" ]; then source venv/bin/activate && python -c "import mcp" && echo "✅ MCP SDK available"; else echo "❌ MCP SDK not available"; fi
 
-format: ## Format code
-	source test-env/bin/activate && black .
-	source test-env/bin/activate && ruff check --fix .
+logs-chromadb: ## Show ChromaDB logs
+	docker-compose logs -f
 
-lint: ## Lint code (same as CI)
-	source test-env/bin/activate && black --check --diff .
-	source test-env/bin/activate && ruff check .
-	source test-env/bin/activate && mypy mcp_server cli --ignore-missing-imports
+status: ## Show status of services
+	@echo "📊 Native MCP Server Status:"
+	@echo "  Virtual environment: $(if $(wildcard venv),✅ exists,❌ missing)"
+	@echo "  ChromaDB service:"
+	@docker-compose ps
+	@echo "  Claude Code config: $(if $(wildcard ~/.config/claude-code/mcp.json),✅ exists,❌ missing)"
 
-pre-commit-install: ## Install pre-commit hooks
-	source test-env/bin/activate && pre-commit install
 
-pre-commit-run: ## Run pre-commit hooks on all files
-	source test-env/bin/activate && pre-commit run --all-files
 
-pre-commit-update: ## Update pre-commit hooks
-	source test-env/bin/activate && pre-commit autoupdate
+test: venv-dev ## Run all tests
+	source venv/bin/activate && pytest tests/ -v
 
-setup-claude-code: ## Setup Claude Code MCP integration
-	./setup-claude-code.sh
+test-unit: venv-dev ## Run unit tests only
+	source venv/bin/activate && pytest tests/unit/ -v
+
+test-integration: venv-dev ## Run integration tests only
+	source venv/bin/activate && pytest tests/integration/ -v
+
+test-cov: venv-dev ## Run tests with coverage report
+	source venv/bin/activate && pytest tests/ -v --cov=mcp_server --cov-report=html --cov-report=term-missing
+
+
+clean: ## Clean up Python cache and build artifacts
+	find . -type f -name '*.pyc' -delete
+	find . -type d -name '__pycache__' -delete
+	find . -type d -name '*.egg-info' -delete
+	rm -rf .pytest_cache
+	rm -rf .coverage
+	rm -rf htmlcov
+
+
+format: venv-dev ## Format code
+	source venv/bin/activate && black .
+	source venv/bin/activate && ruff check --fix .
+
+lint: venv-dev ## Lint code (same as CI)
+	source venv/bin/activate && black --check --diff .
+	source venv/bin/activate && ruff check .
+	source venv/bin/activate && mypy mcp_server --ignore-missing-imports
+
+pre-commit-install: venv-dev ## Install pre-commit hooks
+	source venv/bin/activate && pre-commit install
+
+pre-commit-run: venv-dev ## Run pre-commit hooks on all files
+	source venv/bin/activate && pre-commit run --all-files
+
+pre-commit-update: venv-dev ## Update pre-commit hooks
+	source venv/bin/activate && pre-commit autoupdate
 
 setup-branch-protection: ## Setup GitHub branch protection rules (requires gh CLI)
 	./scripts/setup-branch-protection.sh
 
-test-mcp: ## Test MCP endpoints
-	curl -X POST http://localhost:8000/mcp/initialize -H "Content-Type: application/json" -d '{"protocolVersion": "1.0", "clientInfo": {"name": "test"}}'
-	curl http://localhost:8000/mcp/tools/list
+
+test-mcp-protocol: venv-dev ## Run MCP protocol compliance tests
+	source venv/bin/activate && pytest tests/test_mcp_protocol.py -v
+
+test-e2e: venv-dev ## Run end-to-end workflow tests
+	source venv/bin/activate && pytest tests/test_e2e_workflow.py -v
+
+test-setup: venv-dev ## Run setup validation tests
+	source venv/bin/activate && pytest tests/test_setup_validation.py -v

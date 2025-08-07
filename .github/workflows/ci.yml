@@ -59,15 +59,13 @@ jobs:
       with:
         filters: |
           docker:
-            - 'Dockerfile*'
-            - 'requirements*.txt'
             - 'docker-compose*.yml'
-            - '.dockerignore'
+            - 'requirements*.txt'
           code:
             - 'mcp_server/**'
-            - 'cli/**'
             - 'pyproject.toml'
             - 'tests/**'
+            - 'requirements-*.txt'
 
     # Compute all derived variables once
     - name: Set derived variables
@@ -105,7 +103,7 @@ jobs:
       run: ruff check .
 
     - name: Type check with MyPy
-      run: mypy mcp_server cli --ignore-missing-imports || echo "⚠️ MyPy found type issues (not blocking)"
+      run: mypy mcp_server --ignore-missing-imports || echo "⚠️ MyPy found type issues (not blocking)"
       continue-on-error: true
 
   test:
@@ -123,7 +121,7 @@ jobs:
 
     - name: Run unit tests
       run: |
-        pytest tests/unit/ -v --cov=mcp_server --cov=cli --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
+        pytest tests/unit/ -v --cov=mcp_server --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
 
     - name: Upload test artifacts on failure
       if: failure()
@@ -144,99 +142,50 @@ jobs:
         name: codecov-umbrella
         fail_ci_if_error: false
 
-  # Optimized Docker build with registry caching
-  docker-build:
-    name: Docker Build Test
+  # Docker setup test (ChromaDB only)
+  docker-setup:
+    name: Docker Setup Test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: [detect-changes, lint, test]
     if: |
-      (needs.detect-changes.outputs.docker-changed == 'true' || needs.detect-changes.outputs.code-changed == 'true') &&
+      needs.detect-changes.outputs.docker-changed == 'true' &&
       needs.lint.result != 'failure' && needs.test.result != 'failure'
-    permissions:
-      contents: read
-      packages: write
-
-    env:
-      # Import computed variables from detect-changes
-      IMAGE_NAME: ${{ needs.detect-changes.outputs.image-name }}
-      BRANCH_TAG: ${{ needs.detect-changes.outputs.branch-tag }}
-      CACHE_TAG: ${{ needs.detect-changes.outputs.cache-tag }}
-      BUILDER_CACHE_TAG: ${{ needs.detect-changes.outputs.builder-cache-tag }}
-
-    outputs:
-      # Simple, single image tag for other jobs to use
-      image: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: |
-          image=moby/buildkit:v0.12.0
-          network=host
+    - name: Test ChromaDB Docker setup
+      run: |
+        # Start ChromaDB service
+        docker compose up -d
 
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        # Wait for ChromaDB to be ready
+        for i in {1..30}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
 
-    # Strategy 1: Registry cache (most reliable for large images)
-    - name: Build with registry cache
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        platforms: linux/amd64
-        push: true
-        # Simple, predictable tag
-        tags: |
-          ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
-          ${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }}
-        cache-from: |
-          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }}
-          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}
-        cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.CACHE_TAG }},mode=max
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
+        # Clean up
+        docker compose down
 
-    # Strategy 2: Multi-stage cache optimization
-    - name: Build builder stage only (for faster rebuilds)
-      if: needs.detect-changes.outputs.docker-changed == 'true'
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        target: builder
-        platforms: linux/amd64
-        push: true
-        tags: ${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }}
-        cache-from: |
-          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }}
-          type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_PREFIX }}-main
-        cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ env.BUILDER_CACHE_TAG }},mode=max
-
-  # Lightweight integration test using cached image
+  # Native integration tests
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [detect-changes, lint, test, docker-build]
+    needs: [detect-changes, lint, test]
     if: |
       needs.lint.result == 'success' && needs.test.result == 'success' &&
-      (needs.docker-build.result == 'success' || needs.docker-build.result == 'skipped')
-    permissions:
-      contents: read
-      packages: read
-
-    env:
-      # Use the simple image output from docker-build
-      TEST_IMAGE: ${{ needs.docker-build.outputs.image || 'retainr:latest' }}
-      IMAGE_NAME: ${{ needs.detect-changes.outputs.image-name }}
+      needs.detect-changes.outputs.code-changed == 'true'
 
     steps:
     - uses: actions/checkout@v4
@@ -244,208 +193,49 @@ jobs:
     - name: Setup Python with caching
       uses: ./.github/actions/setup-python
 
-    - name: Log in to Container Registry
-      if: needs.docker-build.result == 'success'
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Pull or build test image
+    - name: Start ChromaDB
       run: |
-        if [ "${{ needs.docker-build.result }}" == "success" ]; then
-          # Use the image built in docker-build job
-          echo "Using pre-built image: ${{ env.TEST_IMAGE }}"
-          docker pull "${{ env.TEST_IMAGE }}"
-          docker tag "${{ env.TEST_IMAGE }}" retainr:latest
-        else
-          # Build minimal test image if docker-build was skipped
-          echo "Building minimal test image..."
-          docker pull "${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}" || true
-          docker build -t retainr:latest --target runtime \
-            --cache-from "${{ env.IMAGE_NAME }}:${{ env.CACHE_MAIN_TAG }}" .
-        fi
+        # Start ChromaDB service
+        docker compose up -d
 
-    - name: Create test environment
-      run: |
-        # Create test configuration
-        cat > .env << EOF
-        RETAINR_MEMORY_DIR=./memory
-        RETAINR_CHROMA_HOST=chroma
-        RETAINR_CHROMA_PORT=8000
-        RETAINR_CHROMA_COLLECTION=retainr_test
-        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
-        EOF
-
-    - name: Start services
-      run: |
-        # Create optimized compose file with tmpfs for faster I/O
-        cat > docker-compose.test.yml << 'EOF'
-        version: '3.8'
-        services:
-          retainr:
-            image: retainr:latest
-            ports:
-              - "8000:8000"
-            environment:
-              - RETAINR_MEMORY_DIR=/tmp/memory
-              - RETAINR_CHROMA_HOST=chroma
-              - RETAINR_CHROMA_PORT=8000
-            volumes:
-              - type: tmpfs
-                target: /tmp/memory
-            depends_on:
-              - chroma
-
-          chroma:
-            image: chromadb/chroma:latest
-            ports:
-              - "8001:8000"
-            volumes:
-              - type: tmpfs
-                target: /chroma/chroma
-        EOF
-
-        docker compose -f docker-compose.test.yml up -d
-
-    - name: Wait for services
-      run: |
-        # Function to check service health
-        check_service() {
-          local service=$1
-          local url=$2
-          local port=$3
-
-          echo "Checking ${service}..."
-          for i in $(seq 1 ${{ env.HEALTH_CHECK_RETRIES }}); do
-            if curl -sf "${url}" >/dev/null 2>&1; then
-              echo "✅ ${service} ready"
-              return 0
-            fi
-
-            if [ $i -eq ${{ env.HEALTH_CHECK_RETRIES }} ]; then
-              echo "❌ ${service} failed to start"
-              docker compose -f docker-compose.test.yml logs chroma
-              return 1
-            fi
-
-            sleep 2
-          done
-        }
-
-        # Check both services in parallel
-        check_service "ChromaDB" "http://localhost:8001/api/v2/heartbeat" "8001" &
-        PID1=$!
-
-        check_service "Retainr" "http://localhost:8000/health" "8000" &
-        PID2=$!
-
-        # Wait for both checks
-        wait $PID1 && wait $PID2
+        # Wait for ChromaDB to be ready
+        for i in {1..30}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
 
     - name: Run integration tests
       run: |
-        pytest tests/integration/ -v --tb=short --junitxml=integration-test-results.xml || TESTS_FAILED=1
-        echo "TESTS_FAILED=${TESTS_FAILED:-0}" >> $GITHUB_ENV
+        pytest tests/integration/ -v --tb=short --junitxml=integration-test-results.xml
 
     - name: Upload integration test artifacts
-      if: failure() || env.TESTS_FAILED == '1'
+      if: failure()
       uses: actions/upload-artifact@v4
       with:
         name: test-results-integration
         path: |
           integration-test-results.xml
-          docker-compose.test.yml
         retention-days: 7
-
-    - name: Collect Docker logs on failure
-      if: failure() || env.TESTS_FAILED == '1'
-      run: |
-        mkdir -p docker-logs
-        docker compose -f docker-compose.test.yml logs > docker-logs/compose.log 2>&1 || true
-        docker ps -a > docker-logs/containers.txt || true
-
-    - name: Upload Docker logs
-      if: failure() || env.TESTS_FAILED == '1'
-      uses: actions/upload-artifact@v4
-      with:
-        name: docker-logs
-        path: docker-logs/
-        retention-days: 7
-
-    - name: Exit if tests failed
-      if: env.TESTS_FAILED == '1'
-      run: exit 1
-
-    - name: Test CLI functionality
-      run: |
-        pip install -e .
-        python -m cli.main status
-        curl -f http://localhost:8000/
-        curl -f http://localhost:8000/health
 
     - name: Clean up
       if: always()
       run: |
-        if [ -f docker-compose.test.yml ]; then
-          docker compose -f docker-compose.test.yml down -v || true
-        fi
+        docker compose down -v || true
 
-  # Full Docker test (only on main or when Docker files change)
-  docker-full-test:
-    name: Full Docker Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [detect-changes, docker-build]
-    if: (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.docker-changed == 'true') && needs.docker-build.result == 'success'
-    permissions:
-      contents: read
-      packages: read
-
-    env:
-      TEST_IMAGE: ${{ needs.docker-build.outputs.image }}
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Pull and test image
-      run: |
-        echo "Testing image: ${{ env.TEST_IMAGE }}"
-        docker pull "${{ env.TEST_IMAGE }}"
-        docker tag "${{ env.TEST_IMAGE }}" retainr:latest
-
-        # Create production-like environment
-        cat > .env << EOF
-        RETAINR_MEMORY_DIR=./memory
-        RETAINR_CHROMA_HOST=chroma
-        RETAINR_CHROMA_PORT=8000
-        RETAINR_CHROMA_COLLECTION=retainr_memories
-        RETAINR_EMBEDDING_MODEL=all-MiniLM-L6-v2
-        EOF
-
-        # Run full compose stack
-        docker compose up -d
-        sleep ${{ env.TEST_TIMEOUT }}
-
-        # Verify health
-        curl -f http://localhost:8000/health
-
-        # Clean up
-        docker compose down
 
   build-status:
     name: Build Status
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [lint, test, docker-build, integration-test]
+    needs: [lint, test, integration-test]
     if: always()
 
     steps:
@@ -469,7 +259,8 @@ jobs:
         FAILED=0
         check_status "Lint" "${{ needs.lint.result }}" || FAILED=1
         check_status "Unit Tests" "${{ needs.test.result }}" || FAILED=1
-        check_status "Docker Build" "${{ needs.docker-build.result }}" || FAILED=1
+        # Docker setup is optional (only for docker-compose changes)
+        echo "✅ Docker Setup: Skipped (native architecture)"
         check_status "Integration Tests" "${{ needs.integration-test.result }}" || FAILED=1
 
         # Create job summary
@@ -479,7 +270,7 @@ jobs:
         echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
         echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Unit Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Docker Setup | skipped (native) |" >> $GITHUB_STEP_SUMMARY
         echo "| Integration Tests | ${{ needs.integration-test.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 

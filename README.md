@@ -2,7 +2,7 @@
 
 [![CI Status](https://github.com/Wodooman/retainr/workflows/CI/badge.svg)](https://github.com/Wodooman/retainr/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 
 An open-source MCP (Model Context Protocol) Server that provides persistent memory storage for AI agents like Claude Code. Enable your AI assistants to remember context between sessions and across repositories.
@@ -17,28 +17,31 @@ An open-source MCP (Model Context Protocol) Server that provides persistent memo
 
 ## Quick Start
 
-### Docker (Recommended)
+### Native Mode (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/Wodooman/retainr.git
 cd retainr
 
-# Start with Docker Compose
-docker-compose up -d
+# One-command setup
+./setup.sh
 
-# Or use the Makefile
-make up
+# Start MCP server
+make start-mcp
 ```
 
-### Local Installation
+### Manual Installation
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+make setup
 
-# Start the server
-python -m uvicorn mcp_server.main:app --reload
+# Start ChromaDB service
+make start-chromadb
+
+# Start the MCP server
+make start-mcp
 ```
 
 ### Configuration
@@ -53,24 +56,20 @@ cp .env.example .env
 
 ### Basic Usage
 
-```bash
-# Save a memory from JSON file
-retainr save examples/memory1.json
+Once connected to Claude Code, you can use natural language:
 
-# Search memories with semantic similarity
-retainr recall "how to setup the project"
+```
+# Save important information
+"Save a memory about implementing OAuth in my project with tags authentication and security"
 
-# Search with filters
-retainr recall "database schema" --project myapp --top 5
+# Search for relevant context
+"Search for memories about database optimization techniques"
 
 # List recent memories
-retainr list --project retainr --limit 10
+"List my recent memories for the web-app project"
 
 # Update memory status
-retainr update <memory-id> --outdated
-
-# Check server status
-retainr status
+"Mark memory abc123 as outdated"
 ```
 
 The server stores memories as human-readable markdown files in your configured directory, allowing you to browse and edit them with any text editor.
@@ -80,11 +79,11 @@ The server stores memories as human-readable markdown files in your configured d
 To use retainr with Claude Code for persistent memory:
 
 ```bash
-# 1. Start the retainr server
-make up
+# 1. Run the setup script (includes Claude Code configuration)
+./setup.sh
 
-# 2. Copy MCP configuration for Claude Code
-cp claude-code-mcp.json ~/.config/claude-code/mcp.json
+# 2. Start the MCP server
+make start-mcp
 
 # 3. Restart Claude Code to register the MCP server
 ```
@@ -98,10 +97,10 @@ See [Claude Code Integration Guide](docs/claude-code-integration.md) for detaile
 
 ## Architecture
 
-- **FastAPI Server**: RESTful API for memory operations
-- **ChromaDB**: Vector database for semantic search (bundled in Docker)
-- **CLI**: Command-line interface for interacting with the server
-- **Memory Storage**: User-configurable markdown files
+- **Native MCP Server**: Standards-compliant MCP server using Python SDK
+- **ChromaDB**: Vector database for semantic search (Docker service)
+- **Memory Storage**: Human-readable markdown files with YAML frontmatter
+- **Claude Code Integration**: Direct stdio communication via MCP protocol
 
 ## Memory Format
 
@@ -124,50 +123,50 @@ The application uses PostgreSQL with the following main tables...
 
 ## Development
 
-### Docker Development
+### Native Development
 
 ```bash
-# Start in development mode with hot reload
-make dev
+# Start in development mode with auto-reload
+make dev-native
 
-# View logs
-make logs
+# View ChromaDB logs
+make logs-chromadb
 
-# Run tests in container
+# Run tests
 make test
 
-# Open shell in container
-make shell
+# Check system health
+make health-check
 ```
 
-### Local Development
+### Code Quality
 
 ```bash
 # Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
+make venv-dev
 
 # Format code
 make format
 
 # Lint code
 make lint
+
+# Run tests with coverage
+make test-cov
 ```
 
 ### Available Make Commands
 
 Run `make help` to see all available commands:
 
-- `make up` - Start server and ChromaDB
-- `make dev` - Start in development mode
-- `make down` - Stop all services
-- `make logs` - View server logs
-- `make logs-chroma` - View ChromaDB logs
-- `make status` - Show service status
+- `make setup` - Full setup with dependencies and ChromaDB
+- `make start-mcp` - Start native MCP server
+- `make start-chromadb` - Start ChromaDB service
+- `make dev-native` - Start in development mode
+- `make logs-chromadb` - View ChromaDB logs
+- `make health-check` - Check system health
 - `make test` - Run tests
-- `make clean` - Clean up containers
+- `make clean` - Clean up Python artifacts
 
 ## License
 

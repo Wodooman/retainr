@@ -1,0 +1,444 @@
+name: Scheduled Comprehensive Tests
+
+on:
+  schedule:
+    # Nightly comprehensive tests at 2 AM UTC
+    - cron: '0 2 * * *'
+    # Weekly full regression tests on Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+        - 'comprehensive'
+        - 'performance'
+        - 'security'
+        - 'full'
+
+# Prevent multiple runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  TEST_TIMEOUT: 60
+  HEALTH_CHECK_RETRIES: 12
+
+jobs:
+  # Nightly comprehensive regression tests
+  nightly-regression:
+    name: Nightly Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'comprehensive')
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Start ChromaDB
+      run: |
+        docker compose up -d
+
+        # Wait for ChromaDB to be ready
+        for i in {1..30}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Run comprehensive test suite
+      run: |
+        echo "🧪 Running comprehensive regression tests..."
+
+        # All integration tests
+        pytest tests/integration/ -v --tb=short --timeout=${{ env.TEST_TIMEOUT }} \
+          --junitxml=nightly-integration-results.xml \
+          -m "integration and not slow" || echo "INTEGRATION_FAILED=1" >> $GITHUB_ENV
+
+        # E2E workflow tests
+        pytest tests/test_e2e_workflow.py -v --tb=short --timeout=${{ env.TEST_TIMEOUT }} \
+          --junitxml=nightly-e2e-results.xml || echo "E2E_FAILED=1" >> $GITHUB_ENV
+
+        # Error recovery tests
+        pytest tests/integration/test_error_recovery.py -v --tb=short --timeout=${{ env.TEST_TIMEOUT }} \
+          --junitxml=nightly-recovery-results.xml || echo "RECOVERY_FAILED=1" >> $GITHUB_ENV
+
+        # Data integrity tests
+        pytest tests/integration/test_data_integrity.py -v --tb=short --timeout=${{ env.TEST_TIMEOUT }} \
+          --junitxml=nightly-integrity-results.xml || echo "INTEGRITY_FAILED=1" >> $GITHUB_ENV
+
+    - name: Generate nightly test report
+      run: |
+        echo "## Nightly Regression Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Category | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$INTEGRATION_FAILED" != "1" ]; then
+          echo "| Integration Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Integration Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$E2E_FAILED" != "1" ]; then
+          echo "| E2E Workflow | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| E2E Workflow | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$RECOVERY_FAILED" != "1" ]; then
+          echo "| Error Recovery | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Error Recovery | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$INTEGRITY_FAILED" != "1" ]; then
+          echo "| Data Integrity | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Data Integrity | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload nightly test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-test-results
+        path: |
+          nightly-*-results.xml
+        retention-days: 30
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker compose down -v || true
+
+  # Weekly performance and scalability tests
+  weekly-performance:
+    name: Weekly Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event.schedule == '0 2 * * 0' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'performance')
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Start ChromaDB
+      run: |
+        docker compose up -d
+
+        # Wait for ChromaDB to be ready
+        for i in {1..30}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Run performance tests
+      run: |
+        echo "🚀 Running performance and scalability tests..."
+
+        # Performance tests (non-slow)
+        pytest tests/performance/ -v --tb=short --timeout=300 \
+          --junitxml=performance-results.xml \
+          -m "performance and not slow" || echo "PERFORMANCE_FAILED=1" >> $GITHUB_ENV
+
+        # Long-running stability tests
+        pytest tests/performance/ -v --tb=short --timeout=600 \
+          --junitxml=stability-results.xml \
+          -m "performance and slow" || echo "STABILITY_FAILED=1" >> $GITHUB_ENV
+
+    - name: Generate performance report
+      run: |
+        echo "## Weekly Performance Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Category | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$PERFORMANCE_FAILED" != "1" ]; then
+          echo "| Performance Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Performance Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$STABILITY_FAILED" != "1" ]; then
+          echo "| Stability Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Stability Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload performance test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-test-results
+        path: |
+          performance-results.xml
+          stability-results.xml
+        retention-days: 30
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker compose down -v || true
+
+  # Security and input validation tests
+  security-tests:
+    name: Security Validation Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event.schedule == '0 2 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'security')
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Start ChromaDB
+      run: |
+        docker compose up -d
+
+        # Wait for ChromaDB to be ready
+        for i in {1..15}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 15 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Run security tests
+      run: |
+        echo "🔒 Running security and input validation tests..."
+
+        pytest tests/security/ -v --tb=short --timeout=120 \
+          --junitxml=security-results.xml \
+          -m "security" || echo "SECURITY_FAILED=1" >> $GITHUB_ENV
+
+    - name: Generate security report
+      run: |
+        echo "## Security Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$SECURITY_FAILED" != "1" ]; then
+          echo "✅ **All security tests passed**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Input validation working correctly" >> $GITHUB_STEP_SUMMARY
+          echo "- Injection attack protection active" >> $GITHUB_STEP_SUMMARY
+          echo "- Resource exhaustion protections in place" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Security tests failed**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Security vulnerabilities may exist - review logs" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload security test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-test-results
+        path: |
+          security-results.xml
+        retention-days: 90  # Keep security results longer
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker compose down -v || true
+
+  # Full comprehensive test suite (weekly)
+  full-regression:
+    name: Full Regression Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: github.event.schedule == '0 2 * * 0' || (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'full')
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Python with caching
+      uses: ./.github/actions/setup-python
+
+    - name: Start ChromaDB
+      run: |
+        docker compose up -d
+
+        # Wait for ChromaDB to be ready
+        for i in {1..30}; do
+          if curl -sf "http://localhost:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+            echo "✅ ChromaDB ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "❌ ChromaDB failed to start"
+            docker compose logs
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Run full test suite
+      run: |
+        echo "🧪 Running COMPLETE regression test suite..."
+
+        # All tests except the very slow ones
+        pytest tests/ -v --tb=short --timeout=300 \
+          --cov=mcp_server --cov-report=xml --cov-report=term-missing \
+          --junitxml=full-regression-results.xml \
+          -m "not slow" \
+          --maxfail=5 || echo "FULL_FAILED=1" >> $GITHUB_ENV
+
+        # Run slow tests separately with higher timeout
+        pytest tests/ -v --tb=short --timeout=600 \
+          --junitxml=slow-regression-results.xml \
+          -m "slow" \
+          --maxfail=2 || echo "SLOW_FAILED=1" >> $GITHUB_ENV
+
+    - name: Generate comprehensive report
+      run: |
+        echo "## Full Regression Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Count test results
+        TOTAL_TESTS=$(find . -name "*regression-results.xml" -exec grep -o 'tests="[0-9]*"' {} \; | sed 's/tests="//' | sed 's/"//' | awk '{sum+=$1} END {print sum}')
+        FAILED_TESTS=$(find . -name "*regression-results.xml" -exec grep -o 'failures="[0-9]*"' {} \; | sed 's/failures="//' | sed 's/"//' | awk '{sum+=$1} END {print sum}')
+        PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
+
+        echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Total Tests | $TOTAL_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$FULL_FAILED" != "1" ] && [ "$SLOW_FAILED" != "1" ]; then
+          echo "✅ **All regression tests passed!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 MCP server is ready for production deployment" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Some regression tests failed**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Review failed tests before deployment" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Coverage Report Available in Artifacts**" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload comprehensive test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: full-regression-results
+        path: |
+          *regression-results.xml
+          coverage.xml
+          .coverage
+        retention-days: 90
+
+    - name: Upload coverage to Codecov
+      if: always()
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: full-regression
+        name: codecov-full-regression
+        fail_ci_if_error: false
+
+    - name: Clean up
+      if: always()
+      run: |
+        docker compose down -v || true
+
+  # Test status summary
+  test-status-summary:
+    name: Test Status Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [nightly-regression, weekly-performance, security-tests, full-regression]
+    if: always()
+
+    steps:
+    - name: Generate overall summary
+      run: |
+        echo "## Scheduled Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+        # Check each job result
+        if [ "${{ needs.nightly-regression.result }}" == "success" ]; then
+          echo "| Nightly Regression | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.nightly-regression.result }}" == "skipped" ]; then
+          echo "| Nightly Regression | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Nightly Regression | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ needs.weekly-performance.result }}" == "success" ]; then
+          echo "| Performance Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.weekly-performance.result }}" == "skipped" ]; then
+          echo "| Performance Tests | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Performance Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ needs.security-tests.result }}" == "success" ]; then
+          echo "| Security Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.security-tests.result }}" == "skipped" ]; then
+          echo "| Security Tests | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Security Tests | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${{ needs.full-regression.result }}" == "success" ]; then
+          echo "| Full Regression | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.full-regression.result }}" == "skipped" ]; then
+          echo "| Full Regression | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Full Regression | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Scheduled at:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "**Next nightly run:** Tomorrow 2 AM UTC" >> $GITHUB_STEP_SUMMARY
+        echo "**Next weekly run:** Sunday 2 AM UTC" >> $GITHUB_STEP_SUMMARY

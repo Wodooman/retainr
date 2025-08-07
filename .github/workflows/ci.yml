@@ -27,12 +27,11 @@ env:
   TEST_TIMEOUT: 30
   HEALTH_CHECK_RETRIES: 12
 
-# Optimized CI strategy for 2.36GB Docker images:
-# 1. Registry caching instead of local cache (more reliable for large images)
-# 2. Multi-stage build optimization
-# 3. Conditional builds (skip if no Docker changes)
-# 4. Parallel jobs where possible
-# 5. Smart cache invalidation
+# Optimized CI strategy for fast PR feedback:
+# 1. Fast tests always run (unit, setup validation, MCP protocol)
+# 2. Integration tests only when relevant files change
+# 3. Parallel test execution for speed
+# 4. Comprehensive tests run in scheduled pipeline
 
 jobs:
   # Fast path: Skip Docker build if no relevant changes
@@ -43,6 +42,8 @@ jobs:
     outputs:
       docker-changed: ${{ steps.changes.outputs.docker }}
       code-changed: ${{ steps.changes.outputs.code }}
+      integration-changed: ${{ steps.changes.outputs.integration }}
+      performance-changed: ${{ steps.changes.outputs.performance }}
       # Computed values for use in other jobs
       image-name: ${{ steps.vars.outputs.image-name }}
       branch-tag: ${{ steps.vars.outputs.branch-tag }}
@@ -66,6 +67,12 @@ jobs:
             - 'pyproject.toml'
             - 'tests/**'
             - 'requirements-*.txt'
+          integration:
+            - 'mcp_server/**'
+            - 'tests/integration/**'
+            - 'tests/test_e2e_workflow.py'
+          performance:
+            - 'tests/performance/**'
 
     # Compute all derived variables once
     - name: Set derived variables
@@ -106,10 +113,11 @@ jobs:
       run: mypy mcp_server --ignore-missing-imports || echo "⚠️ MyPy found type issues (not blocking)"
       continue-on-error: true
 
-  test:
-    name: Unit Tests
+  # Fast tests always run on PRs (unit + setup validation + protocol)
+  fast-tests:
+    name: Fast Tests (PR)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     needs: detect-changes
     if: needs.detect-changes.outputs.code-changed == 'true'
 
@@ -119,27 +127,32 @@ jobs:
     - name: Setup Python with caching
       uses: ./.github/actions/setup-python
 
-    - name: Run unit tests
+    - name: Run fast test suite
       run: |
-        pytest tests/unit/ -v --cov=mcp_server --cov-report=xml --cov-report=term-missing --junitxml=test-results.xml
+        # Run core fast tests: unit tests + setup validation + MCP protocol
+        pytest tests/unit/ tests/test_setup_validation.py tests/test_mcp_protocol.py \
+          -v --tb=short --timeout=60 \
+          --cov=mcp_server --cov-report=xml --cov-report=term-missing \
+          --junitxml=fast-test-results.xml \
+          -m "not slow"
 
     - name: Upload test artifacts on failure
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-unit
+        name: fast-test-results
         path: |
           .coverage
           coverage.xml
-          test-results.xml
+          fast-test-results.xml
         retention-days: 7
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
+        flags: fast-tests
+        name: codecov-fast
         fail_ci_if_error: false
 
   # Docker setup test (ChromaDB only)
@@ -177,15 +190,15 @@ jobs:
         # Clean up
         docker compose down
 
-  # Native integration tests
-  integration-test:
-    name: Integration Tests
+  # Conditional integration tests (only when integration-relevant files change)
+  integration-tests:
+    name: Integration Tests (Conditional)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [detect-changes, lint, test]
+    timeout-minutes: 15
+    needs: [detect-changes, lint, fast-tests]
     if: |
-      needs.lint.result == 'success' && needs.test.result == 'success' &&
-      needs.detect-changes.outputs.code-changed == 'true'
+      needs.lint.result == 'success' && needs.fast-tests.result == 'success' &&
+      needs.detect-changes.outputs.integration-changed == 'true'
 
     steps:
     - uses: actions/checkout@v4
@@ -212,15 +225,19 @@ jobs:
           sleep 2
         done
 
-    - name: Run integration tests
+    - name: Run conditional integration tests
       run: |
-        pytest tests/integration/ -v --tb=short --junitxml=integration-test-results.xml
+        # Run integration tests + E2E workflow tests
+        pytest tests/integration/ tests/test_e2e_workflow.py \
+          -v --tb=short --timeout=120 \
+          --junitxml=integration-test-results.xml \
+          -m "integration and not slow"
 
     - name: Upload integration test artifacts
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-integration
+        name: integration-test-results
         path: |
           integration-test-results.xml
         retention-days: 7
@@ -235,7 +252,7 @@ jobs:
     name: Build Status
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [lint, test, integration-test]
+    needs: [lint, fast-tests, integration-tests]
     if: always()
 
     steps:
@@ -258,10 +275,14 @@ jobs:
         # Check all required jobs
         FAILED=0
         check_status "Lint" "${{ needs.lint.result }}" || FAILED=1
-        check_status "Unit Tests" "${{ needs.test.result }}" || FAILED=1
-        # Docker setup is optional (only for docker-compose changes)
-        echo "✅ Docker Setup: Skipped (native architecture)"
-        check_status "Integration Tests" "${{ needs.integration-test.result }}" || FAILED=1
+        check_status "Fast Tests" "${{ needs.fast-tests.result }}" || FAILED=1
+
+        # Integration tests are conditional
+        if [ "${{ needs.integration-tests.result }}" != "skipped" ]; then
+          check_status "Integration Tests" "${{ needs.integration-tests.result }}" || FAILED=1
+        else
+          echo "✅ Integration Tests: Skipped (no relevant changes)"
+        fi
 
         # Create job summary
         echo "## CI Build Summary" >> $GITHUB_STEP_SUMMARY
@@ -269,9 +290,12 @@ jobs:
         echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
         echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Unit Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Docker Setup | skipped (native) |" >> $GITHUB_STEP_SUMMARY
-        echo "| Integration Tests | ${{ needs.integration-test.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Fast Tests | ${{ needs.fast-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.integration-tests.result }}" != "skipped" ]; then
+          echo "| Integration Tests | ${{ needs.integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Integration Tests | skipped (conditional) |" >> $GITHUB_STEP_SUMMARY
+        fi
         echo "" >> $GITHUB_STEP_SUMMARY
 
         if [ $FAILED -eq 0 ]; then
